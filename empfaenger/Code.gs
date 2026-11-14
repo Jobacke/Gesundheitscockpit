@@ -3,6 +3,7 @@
  * ---------------------------------------------------------------
  * Nimmt die JSON-Daten von Health Auto Export entgegen und schreibt sie in Firestore:
  *   users/{UID}/health/{JJJJ-MM-TT}  → Schlaf, Ruhepuls, HRV, Gewicht, Blutdruck-Messungen
+ *   users/{UID}/dienste/{JJJJ-MM-TT} → Dienste aus dem Kalender „Familie“ (Nacht/Spät/Tag/Früh)
  *   users/{UID}/tage/{JJJJ-MM-TT}    → füllt Gewicht und Blutdruck morgens/abends,
  *                                      aber NUR, wenn dort noch nichts von Hand eingetragen ist.
  *
@@ -13,6 +14,8 @@ const PROJECT_ID = 'gesundheitscockpit';
 const UID = 'Kbhtx1MbgMTJDdtdGyfp3DSfIk03';  // Firebase → Authentication → Nutzer → „Nutzer-UID“
 const TZ = 'Europe/Berlin';
 const MORGEN_BIS_STUNDE = 12;                  // Messungen vor 12 Uhr = morgens, ab 12 Uhr = abends
+const KALENDER = 'Familie';                    // Kalender mit dem Dienstplan
+const DIENST_TAGE_ZURUECK = 10, DIENST_TAGE_VOR = 7;
 
 const BASE = `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
 
@@ -28,6 +31,7 @@ function doPost(e) {
   try {
     const payload = JSON.parse(e.postData.contents);
     const res = verarbeiten_(payload);
+    try { res.dienste = dienstAktualisieren(); } catch (err) { res.dienste = 'Fehler: ' + err; }
     log_('OK ' + JSON.stringify(res));
     return text_('OK ' + JSON.stringify(res));
   } catch (err) {
@@ -49,6 +53,12 @@ function einrichten() {
   // Test-Schreibzugriff auf Firestore
   patch_(`users/${UID}/health/_test`, { test: 'ok', zeit: new Date().toISOString() });
   Logger.log('✓ Firestore-Zugriff funktioniert.');
+  // Dienste aus dem Kalender + Zeitsteuerung alle 3 Stunden
+  Logger.log('✓ Dienste übertragen: ' + dienstAktualisieren() + ' Tage');
+  if (!ScriptApp.getProjectTriggers().some((t) => t.getHandlerFunction() === 'dienstAktualisieren')) {
+    ScriptApp.newTrigger('dienstAktualisieren').timeBased().everyHours(3).create();
+    Logger.log('✓ Zeitsteuerung für Dienste angelegt (alle 3 Stunden).');
+  }
   const url = ScriptApp.getService().getUrl();
   Logger.log('URL für Health Auto Export:\n' + (url ? url + '?key=' + key : '(erst bereitstellen, dann erneut ausführen)'));
 }
@@ -146,6 +156,54 @@ function verarbeiten_(payload) {
     }
   });
   return { tage: Object.keys(tage).length, healthDokumente: geschrieben, ergaenzteTage: gefuellt };
+}
+
+/* ---------- Dienste aus dem Kalender ---------- */
+
+// Liest den Kalender und schreibt je Tag users/{UID}/dienste/{Datum} = { datum, liste: [...] }
+function dienstAktualisieren() {
+  const cal = CalendarApp.getCalendarsByName(KALENDER)[0];
+  if (!cal) throw new Error(`Kalender „${KALENDER}“ nicht gefunden`);
+  const heute = new Date();
+  const von = new Date(heute.getTime() - DIENST_TAGE_ZURUECK * 864e5);
+  const bis = new Date(heute.getTime() + (DIENST_TAGE_VOR + 1) * 864e5);
+  const tage = {};
+  for (let t = new Date(von); t <= bis; t = new Date(t.getTime() + 864e5)) {
+    tage[Utilities.formatDate(t, TZ, 'yyyy-MM-dd')] = [];
+  }
+  cal.getEvents(von, bis).forEach((ev) => {
+    if (ev.isAllDayEvent() || !istDienst_(ev)) return;
+    const s = ev.getStartTime(), e = ev.getEndTime();
+    const datum = Utilities.formatDate(s, TZ, 'yyyy-MM-dd');
+    if (!tage[datum]) return;
+    tage[datum].push({
+      titel: ev.getTitle(),
+      art: dienstArt_(ev.getTitle(), s, e),
+      start: Utilities.formatDate(s, TZ, 'HH:mm'),
+      ende: Utilities.formatDate(e, TZ, 'HH:mm'),
+      endeDatum: Utilities.formatDate(e, TZ, 'yyyy-MM-dd'),
+    });
+  });
+  Object.keys(tage).forEach((datum) => {
+    tage[datum].sort((a, b) => a.start.localeCompare(b.start));
+    patch_(`users/${UID}/dienste/${datum}`, { datum: datum, liste: tage[datum], aktualisiert: new Date().toISOString() });
+  });
+  return Object.keys(tage).length;
+}
+
+function istDienst_(ev) {
+  const t = ev.getTitle() || '', ort = ev.getLocation() || '';
+  return /schicht|dienst/i.test(t) || /^R[A-Z]{1,3}\b/.test(t) || /wache/i.test(ort);
+}
+
+function dienstArt_(titel, s, e) {
+  if (/RN[MH]|nacht/i.test(titel)) return 'nacht';
+  const sd = Utilities.formatDate(s, TZ, 'yyyy-MM-dd'), ed = Utilities.formatDate(e, TZ, 'yyyy-MM-dd');
+  const h = Number(Utilities.formatDate(s, TZ, 'H'));
+  if (sd !== ed || h >= 18) return 'nacht';
+  if (h >= 12) return 'spaet';
+  if (h < 7) return 'frueh';
+  return 'tag';
 }
 
 /* ---------- Firestore (REST) ---------- */

@@ -245,7 +245,7 @@ input[type=range].unset::-webkit-slider-thumb { background: #555c63; }
 .ampel-gruen { border-left-color: var(--accent); }
 .ampel-gelb { border-left-color: var(--warn); }
 .ampel-rot { border-left-color: var(--danger); }
-.ampel-dot { width: 16px; height: 16px; border-radius: 50%; background: var(--faint); box-shadow: 0 0 12px currentColor; }
+.ampel-dot { flex: none; width: 16px; height: 16px; border-radius: 50%; background: var(--faint); box-shadow: 0 0 12px currentColor; }
 .ampel-gruen .ampel-dot { background: var(--accent); color: var(--accent); }
 .ampel-gelb .ampel-dot { background: var(--warn); color: var(--warn); }
 .ampel-rot .ampel-dot { background: var(--danger); color: var(--danger); }
@@ -255,6 +255,7 @@ input[type=range].unset::-webkit-slider-thumb { background: #555c63; }
 .ampel-gruende .g-gruen::before { color: var(--accent); }
 .ampel-gruende .g-gelb::before { color: var(--warn); }
 .ampel-gruende .g-rot::before { color: var(--danger); }
+.ampel-gruende .g-info::before { color: var(--dia); }
 .sleep-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: #22262b; margin-top: 12px; }
 .sleep-bar i { display: block; height: 100%; }
 

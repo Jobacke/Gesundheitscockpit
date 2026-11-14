@@ -10,6 +10,9 @@ service cloud.firestore {
       match /health/{tag} {
         allow read: if request.auth != null && request.auth.uid == userId;
       }
+      match /dienste/{tag} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+      }
     }
     // Alles andere ist gesperrt.
     match /{document=**} {

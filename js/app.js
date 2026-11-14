@@ -1,7 +1,7 @@
 import { firebaseConfig } from './firebase-config.js';
 import { createStore } from './store.js';
 
-const VERSION = '1.1.2';
+const VERSION = '1.2.0';
 
 // Die fünf täglichen Aufgaben, aus denen sich die Konstanz berechnet
 const TASKS = [
@@ -177,10 +177,11 @@ async function renderHeute() {
   const d = state.date;
   const today = todayKey();
   const isToday = d === today;
-  const [day, range, health] = await Promise.all([
+  const [day, range, health, dienste] = await Promise.all([
     state.store.getDay(d),
     state.store.getRange(addDays(today, -200), today),
     state.store.getHealthRange(addDays(d, -35), d).catch(() => ({})),
+    state.store.getDiensteRange(addDays(d, -1), addDays(d, 1)).catch(() => ({})),
   ]);
   const { current } = streaks(range, today);
   const dt = parseKey(d);
@@ -215,7 +216,7 @@ async function renderHeute() {
       <span class="chip ${current > 0 ? 'good' : ''}">Serie: <strong>${current}</strong> ${current === 1 ? 'Tag' : 'Tage'} vollständig</span>
     </div>
 
-    ${erholungKarte(d, day, health)}
+    ${erholungKarte(d, day, health, dienste, isToday)}
 
     <div class="card" id="card-morgen">
       <div class="card-head">
@@ -365,10 +366,26 @@ function baseline(health, d, key, tage = 28) {
 }
 
 const STUFE = { gruen: 0, gelb: 1, rot: 2 };
-function ampel(d, day, health) {
-  const h = health[d] || {};
+const DIENST_NAME = { nacht: 'Nachtdienst', spaet: 'Spätdienst', tag: 'Tagdienst', frueh: 'Frühdienst' };
+
+function dienstInfo(d, dienste) {
+  const nachNacht = (dienste[addDays(d, -1)]?.liste || []).find((x) => x.art === 'nacht' && x.endeDatum === d);
+  const heute = dienste[d]?.liste || [];
+  const morgen = dienste[addDays(d, 1)]?.liste || [];
+  return { nachNacht, heute, morgen };
+}
+
+// d = angezeigter Tag, q = Tag, aus dem die Health-Werte stammen (meist d, morgens evtl. gestern)
+function ampel(d, q, day, health, dienste) {
+  const h = health[q] || {};
   const gruende = [];
   const add = (stufe, text) => gruende.push({ stufe, text });
+  const { nachNacht, heute } = dienstInfo(d, dienste);
+  if (nachNacht) add('gelb', `nach Nachtdienst (${nachNacht.titel.split(' ')[0]}, bis ${nachNacht.ende} Uhr)`);
+  heute.forEach((x) => {
+    if (x.art === 'nacht') add('gelb', `heute Nachtdienst ab ${x.start} Uhr`);
+    else add('info', `heute ${DIENST_NAME[x.art] || 'Dienst'} ${x.start}–${x.ende} Uhr`);
+  });
 
   const sch = h.schlaf?.gesamt;
   if (sch != null) {
@@ -376,14 +393,14 @@ function ampel(d, day, health) {
     else if (sch < 6.5) add('gelb', `${hm(sch)} Schlaf`);
     else add('gruen', `${hm(sch)} Schlaf`);
   }
-  const rp = h.ruhepuls, rpB = baseline(health, d, 'ruhepuls');
+  const rp = h.ruhepuls, rpB = baseline(health, q, 'ruhepuls');
   if (rp != null && rpB != null) {
     const diff = rp - rpB;
     if (diff >= 5) add('rot', `Ruhepuls ${rp} (+${Math.round(diff)} über Ø)`);
     else if (diff >= 3) add('gelb', `Ruhepuls ${rp} (+${Math.round(diff)} über Ø)`);
     else add('gruen', `Ruhepuls ${rp} im Normalbereich`);
   }
-  const hrv = h.hrv, hrvB = baseline(health, d, 'hrv');
+  const hrv = h.hrv, hrvB = baseline(health, q, 'hrv');
   if (hrv != null && hrvB != null) {
     const q = hrv / hrvB;
     if (q <= 0.8) add('rot', `HRV ${hrv} ms (${Math.round((1 - q) * 100)} % unter Ø)`);
@@ -393,18 +410,25 @@ function ampel(d, day, health) {
   const bp = day.bdMorgen || (h.bdTagesmittel ? { ...h.bdTagesmittel } : null);
   if (bp && overLimit(bp)) add('gelb', `Blutdruck ${bp.sys}/${bp.dia} über deinem Grenzwert`);
 
-  if (!gruende.length) return null;
-  const stufe = gruende.reduce((m, g) => (STUFE[g.stufe] > STUFE[m] ? g.stufe : m), 'gruen');
+  if (!gruende.some((g) => g.stufe !== 'info')) return null;
+  const stufe = gruende.reduce((m, g) => ((STUFE[g.stufe] ?? -1) > STUFE[m] ? g.stufe : m), 'gruen');
   return { stufe, gruende };
 }
 
-function erholungKarte(d, day, health) {
-  const h = health[d];
+function erholungKarte(d, day, health, dienste, isToday) {
+  // Heute noch nichts da (z. B. früh morgens)? Dann die letzten Werte von gestern/vorgestern zeigen.
+  let q = d;
+  if (!health[d] && isToday) q = [addDays(d, -1), addDays(d, -2)].find((k) => health[k]) || d;
+  const h = health[q];
+  const { morgen } = dienstInfo(d, dienste);
+  const morgenTxt = morgen.length ? `Morgen: ${morgen.map((x) => `${DIENST_NAME[x.art] || 'Dienst'} ${x.start}–${x.ende}`).join(', ')}` : '';
   if (!h) {
     return `<div class="card"><div class="card-head"><div><h2>Erholung</h2><div class="sub">aus Apple Health</div></div></div>
-      <div class="empty" style="padding:8px 0">Für diesen Tag sind noch keine Daten aus Health Auto Export angekommen.</div></div>`;
+      <div class="empty" style="padding:8px 0">Für diesen Tag sind noch keine Daten aus Health Auto Export angekommen.</div>
+      ${morgenTxt ? `<p class="muted small" style="margin:6px 0 0">${morgenTxt}</p>` : ''}</div>`;
   }
-  const a = ampel(d, day, health);
+  const stand = q !== d ? `Stand: ${q === addDays(d, -1) ? 'gestern' : 'vorgestern'} (${fmtShort(q)}) – die letzte Nacht kommt mit der nächsten Lieferung` : '';
+  const a = ampel(d, q, day, health, dienste);
   const TXT = {
     gruen: ['Gut erholt', 'Training wie geplant möglich.'],
     gelb: ['Eingeschränkt erholt', 'Intensität reduzieren – lieber locker (Z1/Z2).'],
@@ -412,11 +436,11 @@ function erholungKarte(d, day, health) {
   };
   const s = h.schlaf;
   const pct = (x) => (s && s.gesamt ? Math.round((x / s.gesamt) * 100) : 0);
-  const rpB = baseline(health, d, 'ruhepuls'), hrvB = baseline(health, d, 'hrv');
+  const rpB = baseline(health, q, 'ruhepuls'), hrvB = baseline(health, q, 'hrv');
   return `
     <div class="card ampel-card ${a ? 'ampel-' + a.stufe : ''}">
       <div class="card-head">
-        <div><h2>Erholung</h2><div class="sub">aus Apple Health</div></div>
+        <div><h2>Erholung</h2><div class="sub">${stand || 'aus Apple Health'}</div></div>
         ${a ? `<span class="ampel-dot" aria-hidden="true"></span>` : ''}
       </div>
       ${a ? `<div class="ampel-text"><strong>${TXT[a.stufe][0]}</strong> – ${TXT[a.stufe][1]}</div>
@@ -429,7 +453,8 @@ function erholungKarte(d, day, health) {
       ${s ? `<div class="sleep-bar" title="Tief ${pct(s.tief)} % · REM ${pct(s.rem)} % · Kern ${pct(s.kern)} %">
           <i style="width:${pct(s.tief)}%;background:#1b6fb5"></i><i style="width:${pct(s.rem)}%;background:#5aa9f0"></i><i style="width:${pct(s.kern)}%;background:#2f3a46"></i></div>
         <div class="chart-legend"><span><i style="background:#1b6fb5"></i>Tief ${pct(s.tief)} %</span><span><i style="background:#5aa9f0"></i>REM ${pct(s.rem)} %</span><span><i style="background:#2f3a46"></i>Kern ${pct(s.kern)} %</span></div>` : ''}
-      <p class="muted small" style="margin:10px 0 0">Faustregel aus Schlaf, Ruhepuls und HRV im Vergleich zu deinen letzten 4 Wochen – dein Tages-Check bleibt maßgeblich.</p>
+      ${morgenTxt ? `<p class="small" style="margin:10px 0 0;color:var(--text)">${morgenTxt}</p>` : ''}
+      <p class="muted small" style="margin:10px 0 0">Faustregel aus Schlaf, Ruhepuls, HRV und Diensten im Vergleich zu deinen letzten 4 Wochen – dein Tages-Check bleibt maßgeblich.</p>
     </div>`;
 }
 

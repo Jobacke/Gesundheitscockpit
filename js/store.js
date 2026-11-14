@@ -43,6 +43,13 @@ async function createFirebaseStore(config) {
     return auth.currentUser.uid;
   };
   const dayRef = (d) => doc(db, 'users', uid(), 'tage', d);
+  async function rangeOf(name, from, to) {
+    const q = query(collection(db, 'users', uid(), name), where('datum', '>=', from), where('datum', '<=', to));
+    const snap = await getDocs(q);
+    const out = {};
+    snap.forEach((s) => { out[s.id] = s.data(); });
+    return out;
+  }
   const userRef = () => doc(db, 'users', uid());
 
   return {
@@ -67,13 +74,8 @@ async function createFirebaseStore(config) {
       snap.forEach((s) => { out[s.id] = s.data(); });
       return out;
     },
-    async getHealthRange(from, to) {
-      const q = query(collection(db, 'users', uid(), 'health'), where('datum', '>=', from), where('datum', '<=', to));
-      const snap = await getDocs(q);
-      const out = {};
-      snap.forEach((s) => { out[s.id] = s.data(); });
-      return out;
-    },
+    async getHealthRange(from, to) { return rangeOf('health', from, to); },
+    async getDiensteRange(from, to) { return rangeOf('dienste', from, to); },
     async getSettings() {
       const s = await getDoc(userRef());
       return (s.exists() && s.data().einstellungen) || {};
@@ -115,6 +117,18 @@ function createDemoStore() {
       try { all = JSON.parse(localStorage.getItem(HKEY)) || {}; } catch { all = {}; }
       const out = {};
       for (const [k, v] of Object.entries(all)) if (k >= from && k <= to) out[k] = v;
+      return out;
+    },
+    async getDiensteRange(from, to) {
+      const out = {};
+      const t = new Date();
+      const k = (n) => { const d = new Date(t); d.setDate(t.getDate() + n); return toKey(d); };
+      const demo = {
+        [k(-1)]: { datum: k(-1), liste: [{ titel: 'RNM (Nachtschicht)', art: 'nacht', start: '18:54', ende: '07:06', endeDatum: k(0) }] },
+        [k(0)]: { datum: k(0), liste: [{ titel: 'Spätdienst', art: 'spaet', start: '14:54', ende: '23:06', endeDatum: k(0) }] },
+        [k(1)]: { datum: k(1), liste: [] },
+      };
+      for (const [key, v] of Object.entries(demo)) if (key >= from && key <= to) out[key] = v;
       return out;
     },
     async getSettings() { try { return JSON.parse(localStorage.getItem(SKEY)) || {}; } catch { return {}; } },
