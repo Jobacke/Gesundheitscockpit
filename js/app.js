@@ -1,7 +1,7 @@
 import { firebaseConfig } from './firebase-config.js';
 import { createStore } from './store.js';
 
-const VERSION = '1.0.0';
+const VERSION = '1.0.1';
 
 // Die fünf täglichen Aufgaben, aus denen sich die Konstanz berechnet
 const TASKS = [
@@ -346,9 +346,9 @@ function bpBlock(p, title) {
     <div class="field">
       <span>${title}</span>
       <div class="bp">
-        <label>Sys<input id="${p}-sys" data-bp="${p}" inputmode="numeric" pattern="[0-9]*" placeholder="128" autocomplete="off"></label>
-        <label>Dia<input id="${p}-dia" data-bp="${p}" inputmode="numeric" pattern="[0-9]*" placeholder="82" autocomplete="off"></label>
-        <label>Puls<input id="${p}-puls" data-bp="${p}" inputmode="numeric" pattern="[0-9]*" placeholder="60" autocomplete="off"></label>
+        <label>Sys<input id="${p}-sys" data-bp="${p}" inputmode="numeric" pattern="[0-9]*" placeholder="–" autocomplete="off"></label>
+        <label>Dia<input id="${p}-dia" data-bp="${p}" inputmode="numeric" pattern="[0-9]*" placeholder="–" autocomplete="off"></label>
+        <label>Puls<input id="${p}-puls" data-bp="${p}" inputmode="numeric" pattern="[0-9]*" placeholder="–" autocomplete="off"></label>
       </div>
       <div class="bp-time" id="${p}-info"></div>
     </div>`;

@@ -32,7 +32,7 @@ python3 -m http.server 8080
    - Reiter **Regeln**: den Inhalt von `firestore.rules` einfügen → *Veröffentlichen*.
 4. **Projekteinstellungen** (Zahnrad) → *Allgemein* → *Meine Apps* → Web-Symbol `</>` → Name `Gesundheitscockpit` (Firebase Hosting **nicht** anhaken).
    Den angezeigten `firebaseConfig`-Block in **`js/firebase-config.js`** einsetzen (statt `null`).
-5. **Authentication → Einstellungen → Autorisierte Domains**: `jobacke.github.io` hinzufügen (und ggf. deine eigene Domain, z. B. `gesundheit.vjbackhaus.de`).
+5. **Authentication → Einstellungen → Autorisierte Domains**: `jobacke.github.io` hinzufügen und `cockpit.vjbackhaus.de`.
 
 > Die Werte in `firebase-config.js` sind nicht geheim. Geschützt sind deine Daten durch das Login und durch `firestore.rules`: Jeder sieht nur seine eigenen Daten.
 
@@ -50,7 +50,7 @@ git push -u origin main
 Danach auf GitHub: *Settings → Pages → Branch `main` / `(root)`* → speichern.
 
 - Im Code stehen **keine Gesundheitswerte**. Alle Daten liegen in Firestore. Ein öffentliches Repo ist deshalb unkritisch. GitHub Pages aus einem **privaten** Repo funktioniert nur mit GitHub Pro.
-- Optional eigene Domain wie bei ZNA-Navi: Datei `CNAME` mit `gesundheit.vjbackhaus.de` anlegen und beim DNS-Anbieter einen CNAME auf `jobacke.github.io` setzen. Die Domain dann auch in Firebase unter *Autorisierte Domains* eintragen.
+- Eigene Domain: **https://cockpit.vjbackhaus.de** (Datei `CNAME`, DNS bei IONOS als CNAME auf `jobacke.github.io`). Die Domain ist auch in Firebase unter *Autorisierte Domains* eingetragen.
 
 ## 3. Auf dem iPhone installieren
 
