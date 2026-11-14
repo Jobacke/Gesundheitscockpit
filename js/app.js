@@ -1,7 +1,7 @@
 import { firebaseConfig } from './firebase-config.js';
 import { createStore } from './store.js';
 
-const VERSION = '1.1.1';
+const VERSION = '1.1.2';
 
 // Die fünf täglichen Aufgaben, aus denen sich die Konstanz berechnet
 const TASKS = [
