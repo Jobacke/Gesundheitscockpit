@@ -13,6 +13,9 @@ service cloud.firestore {
       match /dienste/{tag} {
         allow read: if request.auth != null && request.auth.uid == userId;
       }
+      match /training/{tag} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+      }
     }
     // Alles andere ist gesperrt.
     match /{document=**} {

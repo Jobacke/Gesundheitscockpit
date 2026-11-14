@@ -1,7 +1,7 @@
 import { firebaseConfig } from './firebase-config.js';
 import { createStore } from './store.js';
 
-const VERSION = '1.2.1';
+const VERSION = '1.3.0';
 
 // Die fünf täglichen Aufgaben, aus denen sich die Konstanz berechnet
 const TASKS = [
@@ -177,11 +177,12 @@ async function renderHeute() {
   const d = state.date;
   const today = todayKey();
   const isToday = d === today;
-  const [day, range, health, dienste] = await Promise.all([
+  const [day, range, health, dienste, training] = await Promise.all([
     state.store.getDay(d),
     state.store.getRange(addDays(today, -200), today),
     state.store.getHealthRange(addDays(d, -35), d).catch(() => ({})),
     state.store.getDiensteRange(addDays(d, -1), addDays(d, 1)).catch(() => ({})),
+    state.store.getTrainingRange(addDays(d, -2), d).catch(() => ({})),
   ]);
   const { current } = streaks(range, today);
   const dt = parseKey(d);
@@ -217,7 +218,7 @@ async function renderHeute() {
       <span class="chip ${current > 0 ? 'good' : ''}">Serie: <strong>${current}</strong> ${current === 1 ? 'Tag' : 'Tage'} vollständig</span>
     </div>
 
-    ${erholungKarte(d, day, health, dienste, isToday)}
+    ${erholungKarte(d, day, health, dienste, isToday, training)}
 
     <div class="card" id="card-morgen">
       <div class="card-head">
@@ -385,7 +386,23 @@ function dienstInfo(d, dienste) {
 }
 
 // d = angezeigter Tag, q = Tag, aus dem die Health-Werte stammen (meist d, morgens evtl. gestern)
-function ampel(d, q, day, health, dienste) {
+function trainingInfo(d, training) {
+  // Form zu Tagesbeginn: Wert des Tages – sonst vom Vortag
+  const heute = training[d], gestern = training[addDays(d, -1)];
+  const form = heute || gestern || null;
+  return { heute, gestern, form, formVomVortag: !heute && !!gestern };
+}
+const SPORT = { VirtualRide: 'Zwift', Ride: 'Rad', Run: 'Lauf', VirtualRun: 'Lauf (virtuell)', Walk: 'Gehen', Hike: 'Wandern', WeightTraining: 'Kraft', Workout: 'Training' };
+function aktText(a) {
+  const teile = [`${a.dauerMin} min`];
+  if (a.wattNp || a.wattAvg) teile.push(`${a.wattNp || a.wattAvg} W`);
+  if (a.hfAvg) teile.push(`Ø ${a.hfAvg} bpm`);
+  if (a.last != null) teile.push(`Last ${a.last}`);
+  return `${a.name || SPORT[a.typ] || 'Training'} · ${teile.join(' · ')}`;
+}
+function tsbTxt(t) { return `${t > 0 ? '+' : ''}${fmt(t, 0)}`; }
+
+function ampel(d, q, day, health, dienste, training = {}) {
   const h = health[q] || {};
   const gruende = [];
   const add = (stufe, text) => gruende.push({ stufe, text });
@@ -416,6 +433,13 @@ function ampel(d, q, day, health, dienste) {
     else if (q <= 0.9) add('gelb', `HRV ${hrv} ms (${Math.round((1 - q) * 100)} % unter Ø)`);
     else add('gruen', `HRV ${hrv} ms im Normalbereich`);
   }
+  const { gestern, form } = trainingInfo(d, training);
+  if (form && form.tsb != null) {
+    if (form.tsb < -25) add('rot', `Form (TSB) ${tsbTxt(form.tsb)} – stark belastet`);
+    else if (form.tsb < -10) add('gelb', `Form (TSB) ${tsbTxt(form.tsb)} – belastet`);
+    else add('gruen', `Form (TSB) ${tsbTxt(form.tsb)}`);
+  }
+  (gestern?.aktivitaeten || []).forEach((a) => add('info', `gestern: ${aktText(a)}`));
   const bp = day.bdMorgen || (h.bdTagesmittel ? { ...h.bdTagesmittel } : null);
   if (bp && overLimit(bp)) add('gelb', `Blutdruck ${bp.sys}/${bp.dia} über deinem Grenzwert`);
 
@@ -424,7 +448,7 @@ function ampel(d, q, day, health, dienste) {
   return { stufe, gruende };
 }
 
-function erholungKarte(d, day, health, dienste, isToday) {
+function erholungKarte(d, day, health, dienste, isToday, training = {}) {
   // Heute noch nichts da (z. B. früh morgens)? Dann die letzten Werte von gestern/vorgestern zeigen.
   let q = d;
   if (!health[d] && isToday) q = [addDays(d, -1), addDays(d, -2)].find((k) => health[k]) || d;
@@ -437,7 +461,9 @@ function erholungKarte(d, day, health, dienste, isToday) {
       ${morgenTxt ? `<p class="muted small" style="margin:6px 0 0">${morgenTxt}</p>` : ''}</div>`;
   }
   const stand = q !== d ? `Stand: ${q === addDays(d, -1) ? 'gestern' : 'vorgestern'} (${fmtShort(q)}) – die letzte Nacht kommt mit der nächsten Lieferung` : '';
-  const a = ampel(d, q, day, health, dienste);
+  const a = ampel(d, q, day, health, dienste, training);
+  const tr = trainingInfo(d, training);
+  const heuteAkt = tr.heute?.aktivitaeten || [];
   const TXT = {
     gruen: ['Gut erholt', 'Training wie geplant möglich.'],
     gelb: ['Eingeschränkt erholt', 'Intensität reduzieren – lieber locker (Z1/Z2).'],
@@ -453,7 +479,7 @@ function erholungKarte(d, day, health, dienste, isToday) {
         ${a ? `<span class="ampel-dot" aria-hidden="true"></span>` : ''}
       </div>
       ${a ? `<div class="ampel-text"><strong>${TXT[a.stufe][0]}</strong> – ${TXT[a.stufe][1]}</div>
-      <ul class="ampel-gruende">${a.gruende.map((g) => `<li class="g-${g.stufe}">${g.text}</li>`).join('')}</ul>` : ''}
+      <ul class="ampel-gruende">${a.gruende.map((g) => `<li class="g-${g.stufe}">${escapeHtml(g.text)}</li>`).join('')}</ul>` : ''}
       <div class="kpis">
         <div class="kpi"><b>${hm(s?.gesamt)}</b><span>Schlaf${s?.start ? ` · ${s.start}–${s.ende}` : ''}</span></div>
         <div class="kpi"><b>${h.ruhepuls ?? '–'}</b><span>Ruhepuls${rpB ? ` · Ø ${Math.round(rpB)}` : ''}</span></div>
@@ -462,8 +488,14 @@ function erholungKarte(d, day, health, dienste, isToday) {
       ${s ? `<div class="sleep-bar" title="Tief ${pct(s.tief)} % · REM ${pct(s.rem)} % · Kern ${pct(s.kern)} %">
           <i style="width:${pct(s.tief)}%;background:#1b6fb5"></i><i style="width:${pct(s.rem)}%;background:#5aa9f0"></i><i style="width:${pct(s.kern)}%;background:#2f3a46"></i></div>
         <div class="chart-legend"><span><i style="background:#1b6fb5"></i>Tief ${pct(s.tief)} %</span><span><i style="background:#5aa9f0"></i>REM ${pct(s.rem)} %</span><span><i style="background:#2f3a46"></i>Kern ${pct(s.kern)} %</span></div>` : ''}
+      ${tr.form ? `<div class="kpis">
+        <div class="kpi"><b>${fmt(tr.form.ctl, 0)}</b><span>Fitness (CTL)</span></div>
+        <div class="kpi"><b>${fmt(tr.form.atl, 0)}</b><span>Ermüdung (ATL)</span></div>
+        <div class="kpi"><b>${tsbTxt(tr.form.tsb)}</b><span>Form (TSB)${tr.formVomVortag ? ' · gestern' : ''}</span></div>
+      </div>` : ''}
+      ${heuteAkt.length ? `<p class="small" style="margin:10px 0 0;color:var(--text)">Heute trainiert: ${heuteAkt.map((x) => escapeHtml(aktText(x))).join('; ')}</p>` : ''}
       ${morgenTxt ? `<p class="small" style="margin:10px 0 0;color:var(--text)">${morgenTxt}</p>` : ''}
-      <p class="muted small" style="margin:10px 0 0">Faustregel aus Schlaf, Ruhepuls, HRV und Diensten im Vergleich zu deinen letzten 4 Wochen – dein Tages-Check bleibt maßgeblich.</p>
+      <p class="muted small" style="margin:10px 0 0">Faustregel aus Schlaf, Ruhepuls, HRV, Form und Diensten im Vergleich zu deinen letzten 4 Wochen – dein Tages-Check bleibt maßgeblich.${tr.form ? '' : ' Trainingsdaten kommen aus Analytics, sobald dort abgeglichen wurde.'}</p>
     </div>`;
 }
 
@@ -607,10 +639,15 @@ async function renderVerlauf() {
   const today = todayKey();
   const n = state.verlaufTage;
   const from = addDays(today, -(n - 1));
-  const [map, health] = await Promise.all([
+  const [map, health, training] = await Promise.all([
     state.store.getRange(from, today),
     state.store.getHealthRange(from, today).catch(() => ({})),
+    state.store.getTrainingRange(from, today).catch(() => ({})),
   ]);
+  const ctl = keys0(from, n).map((k) => training[k]?.ctl ?? null);
+  const atl = keys0(from, n).map((k) => training[k]?.atl ?? null);
+  const tsb = keys0(from, n).map((k) => training[k]?.tsb ?? null);
+  const tLast = keys0(from, n).map((k) => (training[k] ? training[k].last || null : null));
   const keys = Array.from({ length: n }, (_, i) => addDays(from, i));
   const val = (k, f) => f(map[k] || {});
   const hval = (k, f) => f(health[k] || {});
@@ -684,6 +721,18 @@ async function renderVerlauf() {
     </div>
 
     <div class="card">
+      <div class="card-head"><h2>Belastung</h2><span class="sub">aus Analytics</span></div>
+      ${ctl.some((v) => v != null) ? lineChart(keys, [
+        { values: tLast, color: '#5a6470', type: 'dots' },
+        { values: ctl, color: '#5aa9f0', type: 'line', width: 2.5 },
+        { values: atl, color: '#ef6a6a', type: 'line', width: 2 },
+      ], { height: 170 }) + lineChart(keys, [
+        { values: tsb, color: '#f2b84b', type: 'line', width: 2.5 },
+      ], { thresholds: [0, -25], height: 120 }) : '<div class="empty">Noch keine Trainingsdaten – in Analytics den Abgleich einschalten</div>'}
+      <div class="chart-legend"><span><i style="background:#5aa9f0"></i>Fitness (CTL)</span><span><i style="background:#ef6a6a"></i>Ermüdung (ATL)</span><span><i style="background:#f2b84b"></i>Form (TSB)</span><span><i style="background:#5a6470"></i>Tageslast</span></div>
+    </div>
+
+    <div class="card">
       <div class="card-head"><h2>Schlaf</h2><span class="sub">Stunden</span></div>
       ${schlafH.some((v) => v != null) ? lineChart(keys, [
         { values: schlafH, color: '#5aa9f0', type: 'dots' },
@@ -723,6 +772,8 @@ async function renderVerlauf() {
     renderVerlauf();
   }));
 }
+
+function keys0(from, n) { return Array.from({ length: n }, (_, i) => addDays(from, i)); }
 
 function movingAvg(values, win) {
   return values.map((_, i) => {

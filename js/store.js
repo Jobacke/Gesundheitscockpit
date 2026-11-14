@@ -76,6 +76,7 @@ async function createFirebaseStore(config) {
     },
     async getHealthRange(from, to) { return rangeOf('health', from, to); },
     async getDiensteRange(from, to) { return rangeOf('dienste', from, to); },
+    async getTrainingRange(from, to) { return rangeOf('training', from, to); },
     async getSettings() {
       const s = await getDoc(userRef());
       return (s.exists() && s.data().einstellungen) || {};
@@ -117,6 +118,24 @@ function createDemoStore() {
       try { all = JSON.parse(localStorage.getItem(HKEY)) || {}; } catch { all = {}; }
       const out = {};
       for (const [k, v] of Object.entries(all)) if (k >= from && k <= to) out[k] = v;
+      return out;
+    },
+    async getTrainingRange(from, to) {
+      const out = {};
+      const t = new Date();
+      let ctl = 38, atl = 30;
+      for (let i = 60; i >= 0; i--) {
+        const d = new Date(t); d.setDate(t.getDate() - i);
+        const key = toKey(d);
+        const last = i % 3 === 0 ? 0 : Math.round(40 + Math.random() * 60);
+        ctl += (last - ctl) * (1 - Math.exp(-1 / 42));
+        atl += (last - atl) * (1 - Math.exp(-1 / 7));
+        if (key < from || key > to) continue;
+        out[key] = {
+          datum: key, last, ctl: round1(ctl), atl: round1(atl), tsb: round1(ctl - atl), dauerH: last ? 1.1 : 0,
+          aktivitaeten: last ? [{ start: '17:30', name: i === 1 ? 'Zwift – Schwelle 3×8' : 'Zwift – Grundlage', typ: 'VirtualRide', dauerMin: 66, distanzKm: 31.2, hfAvg: 128, wattAvg: 168, wattNp: 182, last }] : [],
+        };
+      }
       return out;
     },
     async getDiensteRange(from, to) {

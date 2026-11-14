@@ -4,6 +4,7 @@
  * Nimmt die JSON-Daten von Health Auto Export entgegen und schreibt sie in Firestore:
  *   users/{UID}/health/{JJJJ-MM-TT}  → Schlaf, Ruhepuls, HRV, Gewicht, Blutdruck-Messungen
  *   users/{UID}/dienste/{JJJJ-MM-TT} → Dienste aus dem Kalender „Familie“ (Nacht/Spät/Tag/Früh)
+ *   users/{UID}/training/{JJJJ-MM-TT}→ Trainingslast, CTL/ATL/TSB und Aktivitäten (von Analytics gesendet)
  *   users/{UID}/tage/{JJJJ-MM-TT}    → füllt Gewicht und Blutdruck morgens/abends,
  *                                      aber NUR, wenn dort noch nichts von Hand eingetragen ist.
  *
@@ -30,6 +31,11 @@ function doPost(e) {
   if (!keyOk_(e)) return text_('Kein Zugriff');
   try {
     const payload = JSON.parse(e.postData.contents);
+    if (payload && payload.typ === 'training') {
+      const r = trainingSpeichern_(payload);
+      log_('OK Training ' + JSON.stringify(r));
+      return text_('OK ' + JSON.stringify(r));
+    }
     const res = verarbeiten_(payload);
     try { res.dienste = dienstAktualisieren(); } catch (err) { res.dienste = 'Fehler: ' + err; }
     log_('OK ' + JSON.stringify(res));
@@ -157,6 +163,32 @@ function verarbeiten_(payload) {
   });
   return { tage: Object.keys(tage).length, healthDokumente: geschrieben, ergaenzteTage: gefuellt };
 }
+
+/* ---------- Training aus Analytics ---------- */
+
+// payload = { typ:'training', quelle, version, einstellungen, tage:[{datum,last,ctl,atl,tsb,acwr,dauerH}], aktivitaeten:[{datum,start,name,typ,dauerMin,...,last}] }
+function trainingSpeichern_(payload) {
+  const tage = payload.tage || [];
+  const proTag = {};
+  (payload.aktivitaeten || []).forEach((a) => { (proTag[a.datum] = proTag[a.datum] || []).push(a); });
+  const jetzt = new Date().toISOString();
+  tage.forEach((t) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(t.datum || '')) return;
+    patch_(`users/${UID}/training/${t.datum}`, {
+      datum: t.datum,
+      last: num_(t.last), ctl: num_(t.ctl), atl: num_(t.atl), tsb: num_(t.tsb), acwr: num_(t.acwr), dauerH: num_(t.dauerH),
+      aktivitaeten: (proTag[t.datum] || []).map((a) => ({
+        start: String(a.start || ''), name: String(a.name || '').slice(0, 120), typ: String(a.typ || ''),
+        dauerMin: num_(a.dauerMin), distanzKm: num_(a.distanzKm), hfAvg: num_(a.hfAvg), hfMax: num_(a.hfMax),
+        wattAvg: num_(a.wattAvg), wattNp: num_(a.wattNp), last: num_(a.last),
+      })),
+      quelle: String(payload.quelle || 'Analytics') + ' ' + String(payload.version || ''),
+      aktualisiert: jetzt,
+    });
+  });
+  return { tage: tage.length, aktivitaeten: (payload.aktivitaeten || []).length };
+}
+function num_(x) { return typeof x === 'number' && isFinite(x) ? x : null; }
 
 /* ---------- Dienste aus dem Kalender ---------- */
 
