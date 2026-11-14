@@ -631,7 +631,7 @@ async function renderMehr() {
         <div><span>Nach Nachtdienst</span><strong>08:00</strong></div>
         <div><span>Abendrunde + Abendtablette</span><strong>18:00</strong></div>
       </div>
-      <p class="hint" style="margin:10px 0 0">Die Erinnerungen kommen über iOS-Kurzbefehle-Automationen (Anleitung: <b>KURZBEFEHLE.md</b>). Um 18 Uhr wird zusätzlich ans Wiegen erinnert, falls heute noch kein Gewicht in Apple Health ist.</p>
+      <p class="hint" style="margin:10px 0 0">Die Erinnerungen kommen über die iOS-Kurzbefehle „Gesundheit morgens“, „Gesundheit nach Nachtdienst“ und „Gesundheit abends“ (Anleitung: <b>KURZBEFEHLE.md</b>). Nach Nachtdiensten (RNM/RNH) kommt die Morgen-Erinnerung erst um 8 Uhr.</p>
     </div>
 
     <div class="card">
