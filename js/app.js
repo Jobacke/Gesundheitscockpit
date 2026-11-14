@@ -1,7 +1,7 @@
 import { firebaseConfig } from './firebase-config.js';
 import { createStore } from './store.js';
 
-const VERSION = '1.2.0';
+const VERSION = '1.2.1';
 
 // Die fünf täglichen Aufgaben, aus denen sich die Konstanz berechnet
 const TASKS = [
@@ -194,10 +194,11 @@ async function renderHeute() {
       <div>
         <div class="date-nav">
           <button class="icon-btn" data-nav="-1" aria-label="Vorheriger Tag">‹</button>
-          <div>
+          <label class="date-pick" title="Datum wählen">
             <div class="weekday">${isToday ? 'Heute, ' : ''}${weekday}</div>
-            <div class="date">${dateStr}</div>
-          </div>
+            <div class="date">${dateStr}<svg class="cal-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="17" rx="3"/><path d="M3 9h18M8 2v4M16 2v4"/></svg></div>
+            <input type="date" id="date-input" value="${d}" max="${today}" aria-label="Zu einem Datum springen">
+          </label>
           <button class="icon-btn" data-nav="1" aria-label="Nächster Tag" ${isToday ? 'disabled' : ''}>›</button>
         </div>
         ${isToday ? '' : '<button class="today-link" id="to-today">Zurück zu heute</button>'}
@@ -280,6 +281,14 @@ async function renderHeute() {
     renderHeute();
   }));
   $('#to-today')?.addEventListener('click', () => { state.date = today; renderHeute(); });
+  const di = $('#date-input');
+  di.addEventListener('change', () => {
+    const v = di.value;
+    if (!v || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return;
+    state.date = v > today ? today : v;
+    renderHeute();
+  });
+  di.addEventListener('click', () => { try { di.showPicker?.(); } catch { /* iOS öffnet von selbst */ } });
 
   const save = (patch, msg) => {
     Object.assign(day, patch);
