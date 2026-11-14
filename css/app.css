@@ -239,3 +239,27 @@ input[type=range].unset::-webkit-slider-thumb { background: #555c63; }
 @media (min-width: 560px) {
   .stats { grid-template-columns: repeat(4, 1fr); }
 }
+
+/* Erholung / Ampel */
+.ampel-card { border-left: 4px solid var(--line); }
+.ampel-gruen { border-left-color: var(--accent); }
+.ampel-gelb { border-left-color: var(--warn); }
+.ampel-rot { border-left-color: var(--danger); }
+.ampel-dot { width: 16px; height: 16px; border-radius: 50%; background: var(--faint); box-shadow: 0 0 12px currentColor; }
+.ampel-gruen .ampel-dot { background: var(--accent); color: var(--accent); }
+.ampel-gelb .ampel-dot { background: var(--warn); color: var(--warn); }
+.ampel-rot .ampel-dot { background: var(--danger); color: var(--danger); }
+.ampel-text { font-size: 15px; margin: -4px 0 8px; }
+.ampel-gruende { margin: 0 0 4px; padding: 0; list-style: none; display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+.ampel-gruende li::before { content: "●"; margin-right: 7px; font-size: 10px; vertical-align: 1px; }
+.ampel-gruende .g-gruen::before { color: var(--accent); }
+.ampel-gruende .g-gelb::before { color: var(--warn); }
+.ampel-gruende .g-rot::before { color: var(--danger); }
+.sleep-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: #22262b; margin-top: 12px; }
+.sleep-bar i { display: block; height: 100%; }
+
+/* Versionsnummer – immer sichtbar in der Tab-Leiste */
+.app-version {
+  position: absolute; left: 0; right: 0; bottom: max(2px, calc(var(--safe-bottom) - 14px));
+  text-align: center; font-size: 9px; letter-spacing: .04em; color: var(--faint); opacity: .8; pointer-events: none;
+}

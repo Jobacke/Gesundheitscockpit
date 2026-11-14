@@ -7,6 +7,9 @@ service cloud.firestore {
       match /tage/{tag} {
         allow read, write: if request.auth != null && request.auth.uid == userId;
       }
+      match /health/{tag} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+      }
     }
     // Alles andere ist gesperrt.
     match /{document=**} {

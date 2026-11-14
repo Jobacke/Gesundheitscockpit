@@ -1,5 +1,6 @@
 // Datenschicht: Firebase (Login + Firestore mit Offline-Cache) oder Demo-Modus (localStorage).
 // Datenmodell: users/{uid}                → { einstellungen: {...} }
+//              users/{uid}/health/{JJJJ-MM-TT} → { datum, gewicht, ruhepuls, hrv, schlaf{…}, bdMessungen[], bdTagesmittel } (vom Empfänger)
 //              users/{uid}/tage/{JJJJ-MM-TT} → { datum, gewicht, bdMorgen, bdAbend, tabletteMorgen, tabletteAbend, befinden, ruecken, notiz, aktualisiert }
 
 const FB_VERSION = '10.12.2';
@@ -66,6 +67,13 @@ async function createFirebaseStore(config) {
       snap.forEach((s) => { out[s.id] = s.data(); });
       return out;
     },
+    async getHealthRange(from, to) {
+      const q = query(collection(db, 'users', uid(), 'health'), where('datum', '>=', from), where('datum', '<=', to));
+      const snap = await getDocs(q);
+      const out = {};
+      snap.forEach((s) => { out[s.id] = s.data(); });
+      return out;
+    },
     async getSettings() {
       const s = await getDoc(userRef());
       return (s.exists() && s.data().einstellungen) || {};
@@ -79,6 +87,7 @@ async function createFirebaseStore(config) {
 function createDemoStore() {
   const KEY = 'gc_demo_tage';
   const SKEY = 'gc_demo_einstellungen';
+  const HKEY = 'gc_demo_health';
   const read = () => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } };
   const write = (all) => localStorage.setItem(KEY, JSON.stringify(all));
   let authCb = null;
@@ -97,6 +106,13 @@ function createDemoStore() {
     },
     async getRange(from, to) {
       const all = read();
+      const out = {};
+      for (const [k, v] of Object.entries(all)) if (k >= from && k <= to) out[k] = v;
+      return out;
+    },
+    async getHealthRange(from, to) {
+      let all = {};
+      try { all = JSON.parse(localStorage.getItem(HKEY)) || {}; } catch { all = {}; }
       const out = {};
       for (const [k, v] of Object.entries(all)) if (k >= from && k <= to) out[k] = v;
       return out;
@@ -125,8 +141,21 @@ function createDemoStore() {
         };
       }
       write(all);
+      const health = {};
+      for (let i = days; i >= 0; i--) {
+        const dt = new Date(today); dt.setDate(today.getDate() - i);
+        const d = toKey(dt);
+        const g = 4.3 + Math.random() * 2.8;
+        health[d] = {
+          datum: d,
+          ruhepuls: Math.round(53 + Math.random() * 5 + (i === 0 ? 3 : 0)),
+          hrv: Math.round(45 + Math.random() * 20 - (i === 0 ? 8 : 0)),
+          schlaf: { gesamt: round1(g), tief: round1(g * 0.12), rem: round1(g * 0.24), kern: round1(g * 0.62), wach: 0.1, start: '01:12', ende: '06:58' },
+        };
+      }
+      localStorage.setItem(HKEY, JSON.stringify(health));
     },
-    clear() { localStorage.removeItem(KEY); },
+    clear() { localStorage.removeItem(KEY); localStorage.removeItem(HKEY); },
   };
 }
 

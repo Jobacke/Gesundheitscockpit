@@ -1,7 +1,7 @@
 import { firebaseConfig } from './firebase-config.js';
 import { createStore } from './store.js';
 
-const VERSION = '1.0.1';
+const VERSION = '1.1.1';
 
 // Die fünf täglichen Aufgaben, aus denen sich die Konstanz berechnet
 const TASKS = [
@@ -100,6 +100,7 @@ async function boot() {
     return;
   }
   if (state.store.mode === 'demo') $('#demo-banner').hidden = false;
+  $('#app-version').textContent = 'v' + VERSION;
 
   bindLogin();
   bindTabs();
@@ -176,9 +177,10 @@ async function renderHeute() {
   const d = state.date;
   const today = todayKey();
   const isToday = d === today;
-  const [day, range] = await Promise.all([
+  const [day, range, health] = await Promise.all([
     state.store.getDay(d),
     state.store.getRange(addDays(today, -200), today),
+    state.store.getHealthRange(addDays(d, -35), d).catch(() => ({})),
   ]);
   const { current } = streaks(range, today);
   const dt = parseKey(d);
@@ -213,6 +215,8 @@ async function renderHeute() {
       <span class="chip ${current > 0 ? 'good' : ''}">Serie: <strong>${current}</strong> ${current === 1 ? 'Tag' : 'Tage'} vollständig</span>
     </div>
 
+    ${erholungKarte(d, day, health)}
+
     <div class="card" id="card-morgen">
       <div class="card-head">
         <div><h2>Morgens</h2><div class="sub">Wiegen · Blutdruck · Tablette</div></div>
@@ -221,6 +225,7 @@ async function renderHeute() {
       <div class="row">
         <label class="field"><span>Gewicht</span>
           <div class="input-unit"><input id="gewicht" inputmode="decimal" placeholder="z. B. 94,8" autocomplete="off"><em>kg</em></div>
+          <div class="bp-time" id="gewicht-info"></div>
         </label>
         ${bpBlock('m', 'Blutdruck morgens')}
         ${toggleBtn('tabletteMorgen', 'Morgentablette genommen')}
@@ -256,6 +261,7 @@ async function renderHeute() {
   // Werte eintragen
   const g = $('#gewicht');
   if (day.gewicht != null) g.value = fmt(day.gewicht);
+  $('#gewicht-info').textContent = day.gewicht != null && day.gewichtQuelle ? `aus ${day.gewichtQuelle}` : '';
   fillBp('m', day.bdMorgen);
   fillBp('a', day.bdAbend);
   setToggle('tabletteMorgen', !!day.tabletteMorgen);
@@ -285,11 +291,12 @@ async function renderHeute() {
   g.addEventListener('change', () => {
     const v = num(g.value);
     g.classList.remove('invalid', 'saved');
-    if (v == null) { save({ gewicht: null }, 'Gewicht entfernt'); return; }
+    $('#gewicht-info').textContent = '';
+    if (v == null) { save({ gewicht: null, gewichtQuelle: null }, 'Gewicht entfernt'); return; }
     if (!inRange(v, LIMITS.gewicht)) { g.classList.add('invalid'); toast('Gewicht bitte prüfen', true); return; }
     g.value = fmt(round1(v));
     g.classList.add('saved');
-    save({ gewicht: round1(v) }, 'Gewicht gespeichert');
+    save({ gewicht: round1(v), gewichtQuelle: null }, 'Gewicht gespeichert');
   });
 
   // Blutdruck
@@ -341,6 +348,91 @@ async function renderHeute() {
   $('#notiz').addEventListener('change', (e) => save({ notiz: e.target.value.trim() }, 'Notiz gespeichert'));
 }
 
+/* ---------- Erholung (Daten aus Apple Health über den Empfänger) ---------- */
+function hm(h) {
+  if (h == null) return '–';
+  const min = Math.round(h * 60);
+  return `${Math.floor(min / 60)}:${String(min % 60).padStart(2, '0')} h`;
+}
+
+function baseline(health, d, key, tage = 28) {
+  const vals = [];
+  for (let i = 1; i <= tage; i++) {
+    const v = health[addDays(d, -i)]?.[key];
+    if (v != null) vals.push(v);
+  }
+  return vals.length >= 5 ? avg(vals) : null;
+}
+
+const STUFE = { gruen: 0, gelb: 1, rot: 2 };
+function ampel(d, day, health) {
+  const h = health[d] || {};
+  const gruende = [];
+  const add = (stufe, text) => gruende.push({ stufe, text });
+
+  const sch = h.schlaf?.gesamt;
+  if (sch != null) {
+    if (sch < 5) add('rot', `nur ${hm(sch)} Schlaf`);
+    else if (sch < 6.5) add('gelb', `${hm(sch)} Schlaf`);
+    else add('gruen', `${hm(sch)} Schlaf`);
+  }
+  const rp = h.ruhepuls, rpB = baseline(health, d, 'ruhepuls');
+  if (rp != null && rpB != null) {
+    const diff = rp - rpB;
+    if (diff >= 5) add('rot', `Ruhepuls ${rp} (+${Math.round(diff)} über Ø)`);
+    else if (diff >= 3) add('gelb', `Ruhepuls ${rp} (+${Math.round(diff)} über Ø)`);
+    else add('gruen', `Ruhepuls ${rp} im Normalbereich`);
+  }
+  const hrv = h.hrv, hrvB = baseline(health, d, 'hrv');
+  if (hrv != null && hrvB != null) {
+    const q = hrv / hrvB;
+    if (q <= 0.8) add('rot', `HRV ${hrv} ms (${Math.round((1 - q) * 100)} % unter Ø)`);
+    else if (q <= 0.9) add('gelb', `HRV ${hrv} ms (${Math.round((1 - q) * 100)} % unter Ø)`);
+    else add('gruen', `HRV ${hrv} ms im Normalbereich`);
+  }
+  const bp = day.bdMorgen || (h.bdTagesmittel ? { ...h.bdTagesmittel } : null);
+  if (bp && overLimit(bp)) add('gelb', `Blutdruck ${bp.sys}/${bp.dia} über deinem Grenzwert`);
+
+  if (!gruende.length) return null;
+  const stufe = gruende.reduce((m, g) => (STUFE[g.stufe] > STUFE[m] ? g.stufe : m), 'gruen');
+  return { stufe, gruende };
+}
+
+function erholungKarte(d, day, health) {
+  const h = health[d];
+  if (!h) {
+    return `<div class="card"><div class="card-head"><div><h2>Erholung</h2><div class="sub">aus Apple Health</div></div></div>
+      <div class="empty" style="padding:8px 0">Für diesen Tag sind noch keine Daten aus Health Auto Export angekommen.</div></div>`;
+  }
+  const a = ampel(d, day, health);
+  const TXT = {
+    gruen: ['Gut erholt', 'Training wie geplant möglich.'],
+    gelb: ['Eingeschränkt erholt', 'Intensität reduzieren – lieber locker (Z1/Z2).'],
+    rot: ['Schlecht erholt', 'Ruhetag oder nur sehr locker.'],
+  };
+  const s = h.schlaf;
+  const pct = (x) => (s && s.gesamt ? Math.round((x / s.gesamt) * 100) : 0);
+  const rpB = baseline(health, d, 'ruhepuls'), hrvB = baseline(health, d, 'hrv');
+  return `
+    <div class="card ampel-card ${a ? 'ampel-' + a.stufe : ''}">
+      <div class="card-head">
+        <div><h2>Erholung</h2><div class="sub">aus Apple Health</div></div>
+        ${a ? `<span class="ampel-dot" aria-hidden="true"></span>` : ''}
+      </div>
+      ${a ? `<div class="ampel-text"><strong>${TXT[a.stufe][0]}</strong> – ${TXT[a.stufe][1]}</div>
+      <ul class="ampel-gruende">${a.gruende.map((g) => `<li class="g-${g.stufe}">${g.text}</li>`).join('')}</ul>` : ''}
+      <div class="kpis">
+        <div class="kpi"><b>${hm(s?.gesamt)}</b><span>Schlaf${s?.start ? ` · ${s.start}–${s.ende}` : ''}</span></div>
+        <div class="kpi"><b>${h.ruhepuls ?? '–'}</b><span>Ruhepuls${rpB ? ` · Ø ${Math.round(rpB)}` : ''}</span></div>
+        <div class="kpi"><b>${h.hrv ?? '–'}</b><span>HRV ms${hrvB ? ` · Ø ${Math.round(hrvB)}` : ''}</span></div>
+      </div>
+      ${s ? `<div class="sleep-bar" title="Tief ${pct(s.tief)} % · REM ${pct(s.rem)} % · Kern ${pct(s.kern)} %">
+          <i style="width:${pct(s.tief)}%;background:#1b6fb5"></i><i style="width:${pct(s.rem)}%;background:#5aa9f0"></i><i style="width:${pct(s.kern)}%;background:#2f3a46"></i></div>
+        <div class="chart-legend"><span><i style="background:#1b6fb5"></i>Tief ${pct(s.tief)} %</span><span><i style="background:#5aa9f0"></i>REM ${pct(s.rem)} %</span><span><i style="background:#2f3a46"></i>Kern ${pct(s.kern)} %</span></div>` : ''}
+      <p class="muted small" style="margin:10px 0 0">Faustregel aus Schlaf, Ruhepuls und HRV im Vergleich zu deinen letzten 4 Wochen – dein Tages-Check bleibt maßgeblich.</p>
+    </div>`;
+}
+
 function bpBlock(p, title) {
   return `
     <div class="field">
@@ -365,6 +457,7 @@ function fillBpInfo(p, bp) {
   if (!bp) { el.textContent = ''; return; }
   const parts = [];
   if (bp.zeit) parts.push(`gemessen um ${bp.zeit} Uhr`);
+  if (bp.quelle) parts.push(`aus ${bp.quelle}`);
   if (overLimit(bp)) parts.push('⚠︎ über deinem Grenzwert');
   el.textContent = parts.join(' · ');
   el.style.color = overLimit(bp) ? 'var(--warn)' : '';
@@ -480,9 +573,16 @@ async function renderVerlauf() {
   const today = todayKey();
   const n = state.verlaufTage;
   const from = addDays(today, -(n - 1));
-  const map = await state.store.getRange(from, today);
+  const [map, health] = await Promise.all([
+    state.store.getRange(from, today),
+    state.store.getHealthRange(from, today).catch(() => ({})),
+  ]);
   const keys = Array.from({ length: n }, (_, i) => addDays(from, i));
   const val = (k, f) => f(map[k] || {});
+  const hval = (k, f) => f(health[k] || {});
+  const schlafH = keys.map((k) => hval(k, (h) => h.schlaf?.gesamt ?? null));
+  const ruhepuls = keys.map((k) => hval(k, (h) => h.ruhepuls ?? null));
+  const hrvs = keys.map((k) => hval(k, (h) => h.hrv ?? null));
 
   const weights = keys.map((k) => val(k, (d) => d.gewicht ?? null));
   const wAvg = movingAvg(weights, 7);
@@ -547,6 +647,32 @@ async function renderVerlauf() {
         <div class="kpi"><b>${bpText(recent(aSys), recent(aDia))}</b><span>Ø abends 7 T.</span></div>
         <div class="kpi"><b>${recent(puls) == null ? '–' : Math.round(recent(puls))}</b><span>Ø Puls 7 T.</span></div>
       </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>Schlaf</h2><span class="sub">Stunden</span></div>
+      ${schlafH.some((v) => v != null) ? lineChart(keys, [
+        { values: schlafH, color: '#5aa9f0', type: 'dots' },
+        { values: movingAvg(schlafH, 7), color: '#5aa9f0', type: 'line', width: 2 },
+      ], { thresholds: [6.5], height: 160 }) : '<div class="empty">Noch keine Schlafdaten</div>'}
+      <div class="kpis">
+        <div class="kpi"><b>${hm(avg(schlafH.slice(-7)))}</b><span>Ø 7 Tage</span></div>
+        <div class="kpi"><b>${hm(avg(schlafH))}</b><span>Ø Zeitraum</span></div>
+        <div class="kpi"><b>${schlafH.filter((v) => v != null && v >= 6.5).length}</b><span>Nächte ≥ 6:30 h</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>Ruhepuls &amp; HRV</h2><span class="sub">bpm · ms</span></div>
+      ${ruhepuls.some((v) => v != null) ? lineChart(keys, [
+        { values: ruhepuls, color: '#ef6a6a', type: 'dots' },
+        { values: movingAvg(ruhepuls, 7), color: '#ef6a6a', type: 'line', width: 2 },
+      ], { height: 140 }) : '<div class="empty">Noch keine Ruhepuls-Daten</div>'}
+      ${hrvs.some((v) => v != null) ? lineChart(keys, [
+        { values: hrvs, color: '#b38cf5', type: 'dots' },
+        { values: movingAvg(hrvs, 7), color: '#b38cf5', type: 'line', width: 2 },
+      ], { height: 140 }) : ''}
+      <div class="chart-legend"><span><i style="background:#ef6a6a"></i>Ruhepuls</span><span><i style="background:#b38cf5"></i>HRV</span></div>
     </div>
 
     <div class="card">
@@ -632,6 +758,11 @@ async function renderMehr() {
         <div><span>Abendrunde + Abendtablette</span><strong>18:00</strong></div>
       </div>
       <p class="hint" style="margin:10px 0 0">Die Erinnerungen kommen über die iOS-Kurzbefehle „Gesundheit morgens“, „Gesundheit nach Nachtdienst“ und „Gesundheit abends“ (Anleitung: <b>KURZBEFEHLE.md</b>). Nach Nachtdiensten (RNM/RNH) kommt die Morgen-Erinnerung erst um 8 Uhr.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>Apple Health</h2></div>
+      <p class="hint" style="margin:0">Schlaf, Ruhepuls, HRV, Gewicht und Blutdruck kommen automatisch über <b>Health Auto Export</b> (Anleitung: <b>EMPFAENGER.md</b>). Von Hand eingetragene Werte haben immer Vorrang.</p>
     </div>
 
     <div class="card">
