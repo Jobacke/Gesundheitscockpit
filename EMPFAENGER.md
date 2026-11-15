@@ -16,8 +16,9 @@ Damit gelangen Schlaf, Ruhepuls, HRV, Gewicht und Blutdruck automatisch vom iPho
 4. *Projekteinstellungen* (Zahnrad) → Haken bei **„Manifestdatei ‚appsscript.json‘ im Editor anzeigen“** → im Editor `appsscript.json` öffnen und durch den Inhalt von `empfaenger/appsscript.json` ersetzen.
 5. **Bereitstellen → Neue Bereitstellung** → Typ **Web-App** → Ausführen als **Ich**, Zugriff **Jeder** → *Bereitstellen* → Zugriff autorisieren.
 6. Im Editor oben die Funktion **`einrichten`** wählen → **Ausführen**. Im Ausführungsprotokoll stehen dann „✓ Firestore-Zugriff funktioniert“ und die **URL für Health Auto Export**.
-7. In **Health Auto Export** zwei Automationen vom Typ **REST API** mit dieser URL anlegen:
-   - **Cockpit Tageswerte**: Format JSON, *Daten zusammenfassen* **an**, Zeitraum **Tage**. Werte: Schlafanalyse, Ruhepuls, Herzfrequenzvariabilität, Gewicht.
+7. In **Health Auto Export** drei Automationen vom Typ **REST API** mit dieser URL anlegen:
+   - **Cockpit Tageswerte**: Format JSON, *Daten zusammenfassen* **an**, Zeitintervall **Tage**, Datumsbereich **Vorherige 7 Tage**. Werte: Schlafanalyse, Ruhepuls, Herzfrequenzvariabilität, Gewicht. Vervollständigt die Vortage.
+   - **Cockpit Heute**: wie „Cockpit Tageswerte“, aber Datumsbereich **Heute**. Nötig, weil „Vorherige 7 Tage“ den laufenden Tag (und damit die letzte Nacht) nicht enthält.
    - **Cockpit Blutdruck**: Format JSON, *Daten zusammenfassen* **aus**. Wert: Blutdruck. Nur so kommen Uhrzeiten für morgens/abends mit.
 
 ## Prüfen
