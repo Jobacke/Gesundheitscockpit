@@ -1,7 +1,8 @@
 import { firebaseConfig } from './firebase-config.js';
 import { createStore } from './store.js';
+import { berichtErstellen } from './bericht.js';
 
-const VERSION = '1.3.0';
+const VERSION = '1.4.0';
 
 // Die fünf täglichen Aufgaben, aus denen sich die Konstanz berechnet
 const TASKS = [
@@ -27,6 +28,7 @@ const state = {
   lastToday: todayKey(),
   settings: {},
   verlaufTage: 30,
+  berichtTage: 14,
 };
 
 /* ---------- Hilfsfunktionen ---------- */
@@ -860,6 +862,18 @@ async function renderMehr() {
     </div>
 
     <div class="card">
+      <div class="card-head"><div><h2>Bericht als PDF</h2><div class="sub">für die Woche oder den Hausarzt</div></div></div>
+      <div class="seg-small" id="bericht-tage" style="margin-bottom:12px">
+        ${[7, 14, 30, 90].map((v) => `<button data-v="${v}" class="${v === state.berichtTage ? 'on' : ''}">${v} Tage</button>`).join('')}
+      </div>
+      <label class="field" style="margin-bottom:12px"><span>Name im Bericht (optional)</span>
+        <input id="bericht-name" placeholder="z. B. Johannes Backhaus, geb. 12.07.1963" value="${escapeHtml(s.berichtName || '')}" autocomplete="off" style="width:100%">
+      </label>
+      <button class="btn primary block" id="bericht">PDF erstellen</button>
+      <p class="hint" style="margin:10px 0 0">Enthält Blutdruck (Diagramm, Mittelwerte, Höchstwerte), Gewicht, Tabletten, Schlaf, Ruhepuls, HRV, Radtraining, Dienste und alle Tageswerte. Auf dem iPhone öffnet sich danach das Teilen-Menü (Mail, Dateien, Drucken).</p>
+    </div>
+
+    <div class="card">
       <div class="card-head"><h2>Daten</h2></div>
       <div class="list">
         <button class="btn block" id="export">Alle Daten als CSV exportieren</button>
@@ -890,6 +904,16 @@ async function renderMehr() {
       toast('Grenzwert gespeichert');
     });
   }
+  $$('#bericht-tage button').forEach((b) => b.addEventListener('click', () => {
+    state.berichtTage = Number(b.dataset.v);
+    $$('#bericht-tage button').forEach((x) => x.classList.toggle('on', x === b));
+  }));
+  $('#bericht-name').addEventListener('change', (e) => {
+    state.settings = { ...state.settings, berichtName: e.target.value.trim() || null };
+    state.store.saveSettings(state.settings).catch(saveErr);
+    toast('Name gespeichert');
+  });
+  $('#bericht').addEventListener('click', berichtTeilen);
   $('#export').addEventListener('click', exportCsv);
   $('#logout')?.addEventListener('click', () => state.store.logout());
   $('#demo-seed')?.addEventListener('click', () => { state.store.seed(); toast('Beispieldaten erzeugt'); });
@@ -897,6 +921,31 @@ async function renderMehr() {
 }
 
 function escapeHtml(s) { return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+async function berichtTeilen() {
+  const btn = $('#bericht');
+  btn.disabled = true; btn.textContent = 'Bericht wird erstellt …';
+  try {
+    const { blob, name } = await berichtErstellen(state.store, state.settings, state.berichtTage, `v${VERSION}`);
+    await dateiTeilen(new File([blob], name, { type: 'application/pdf' }), name);
+  } catch (e) {
+    console.error(e);
+    toast('Bericht konnte nicht erstellt werden', true);
+  } finally {
+    btn.disabled = false; btn.textContent = 'PDF erstellen';
+  }
+}
+
+async function dateiTeilen(file, name) {
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: name }); return; } catch (e) { if (e.name === 'AbortError') return; }
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(file);
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
 
 async function exportCsv() {
   const map = await state.store.getRange('2000-01-01', todayKey());
