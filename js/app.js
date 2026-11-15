@@ -2,7 +2,7 @@ import { firebaseConfig } from './firebase-config.js';
 import { createStore } from './store.js';
 import { berichtErstellen } from './bericht.js';
 
-const VERSION = '1.4.0';
+const VERSION = '1.4.1';
 
 // Die fünf täglichen Aufgaben, aus denen sich die Konstanz berechnet
 const TASKS = [
@@ -869,8 +869,11 @@ async function renderMehr() {
       <label class="field" style="margin-bottom:12px"><span>Name im Bericht (optional)</span>
         <input id="bericht-name" placeholder="z. B. Johannes Backhaus, geb. 12.07.1963" value="${escapeHtml(s.berichtName || '')}" autocomplete="off" style="width:100%">
       </label>
-      <button class="btn primary block" id="bericht">PDF erstellen</button>
-      <p class="hint" style="margin:10px 0 0">Enthält Blutdruck (Diagramm, Mittelwerte, Höchstwerte), Gewicht, Tabletten, Schlaf, Ruhepuls, HRV, Radtraining, Dienste und alle Tageswerte. Auf dem iPhone öffnet sich danach das Teilen-Menü (Mail, Dateien, Drucken).</p>
+      <div class="btn-row">
+        <button class="btn primary" id="bericht" style="flex:1.4">PDF speichern</button>
+        <button class="btn" id="bericht-teilen" style="flex:1">Teilen …</button>
+      </div>
+      <p class="hint" style="margin:10px 0 0">Enthält Blutdruck (Diagramm, Mittelwerte, Höchstwerte), Gewicht, Tabletten, Schlaf, Ruhepuls, HRV, Radtraining, Dienste und alle Tageswerte. „PDF speichern“ legt den Bericht in „Downloads“ ab, „Teilen …“ öffnet Mail, Nachrichten, Drucken usw.</p>
     </div>
 
     <div class="card">
@@ -913,7 +916,8 @@ async function renderMehr() {
     state.store.saveSettings(state.settings).catch(saveErr);
     toast('Name gespeichert');
   });
-  $('#bericht').addEventListener('click', berichtTeilen);
+  $('#bericht').addEventListener('click', () => berichtAusgeben(false));
+  $('#bericht-teilen').addEventListener('click', () => berichtAusgeben(true));
   $('#export').addEventListener('click', exportCsv);
   $('#logout')?.addEventListener('click', () => state.store.logout());
   $('#demo-seed')?.addEventListener('click', () => { state.store.seed(); toast('Beispieldaten erzeugt'); });
@@ -922,17 +926,20 @@ async function renderMehr() {
 
 function escapeHtml(s) { return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
-async function berichtTeilen() {
-  const btn = $('#bericht');
-  btn.disabled = true; btn.textContent = 'Bericht wird erstellt …';
+async function berichtAusgeben(teilen) {
+  const btn = $(teilen ? '#bericht-teilen' : '#bericht');
+  const label = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Wird erstellt …';
   try {
     const { blob, name } = await berichtErstellen(state.store, state.settings, state.berichtTage, `v${VERSION}`);
-    await dateiTeilen(new File([blob], name, { type: 'application/pdf' }), name);
+    const file = new File([blob], name, { type: 'application/pdf' });
+    if (teilen) await dateiTeilen(file, name);
+    else { herunterladen(file, name); toast('Bericht in „Downloads“ gespeichert'); }
   } catch (e) {
     console.error(e);
     toast('Bericht konnte nicht erstellt werden', true);
   } finally {
-    btn.disabled = false; btn.textContent = 'PDF erstellen';
+    btn.disabled = false; btn.textContent = label;
   }
 }
 
@@ -940,11 +947,18 @@ async function dateiTeilen(file, name) {
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
     try { await navigator.share({ files: [file], title: name }); return; } catch (e) { if (e.name === 'AbortError') return; }
   }
+  herunterladen(file, name);
+}
+
+function herunterladen(file, name) {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(file);
   a.download = name;
+  a.rel = 'noopener';
+  document.body.appendChild(a);
   a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 60000);
 }
 
 async function exportCsv() {
