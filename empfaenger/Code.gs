@@ -425,7 +425,8 @@ const GARMIN_TOKEN_URL = GARMIN_BASE + '/personalapitoken-service/personal-api/p
 function garminTesten() {
   const r = garminAbgleich_(14, true);
   Logger.log('✓ Garmin erreichbar. Gewichtswerte der letzten 14 Tage: ' + r.tage.length);
-  r.tage.forEach((t) => Logger.log(`  ${t.datum}: ${t.gewicht} kg` + (t.koerperfett != null ? `, Körperfett ${t.koerperfett} %` : '') + (t.muskelmasse != null ? `, Muskelmasse ${t.muskelmasse} kg` : '')));
+  r.tage.forEach((t) => Logger.log(`  ${t.datum}: ${t.gewicht} kg` + (t.koerperfett != null ? `, Körperfett ${t.koerperfett} %` : '') + (t.muskelmasse != null ? `, Muskelmasse ${t.muskelmasse} kg` : '') +
+    (t.messungen.length > 1 ? `  | alle: ${t.messungen.map((m) => `${m.zeit} ${m.gewicht}`).join(', ')}` : '')));
   if (r.roh) Logger.log('Antwort von Garmin (Auszug): ' + r.roh);
 }
 
@@ -461,7 +462,7 @@ function garminGet_(pfad) {
   return res.getContentText();
 }
 
-// Holt die Gewichtsmessungen der letzten `tage` Tage und schreibt je Tag die letzte Messung ins Cockpit
+// Holt die Gewichtsmessungen der letzten `tage` Tage: Tageswert = erste Messung, alle Messungen mit Uhrzeit
 function garminAbgleich_(tage, mitRoh) {
   const heute = Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd');
   const von = Utilities.formatDate(new Date(Date.now() - (tage - 1) * 86400000), TZ, 'yyyy-MM-dd');
@@ -478,38 +479,58 @@ function garminAbgleich_(tage, mitRoh) {
   (j.dateWeightList || []).forEach((m) => messungen.push(m));
 
   const kg = (g) => (isNum_(g) ? round_(g > 1000 ? g / 1000 : g, 1) : null);
-  const proTag = {};
+  const gesehen = {};
+  const proTag = {};   // datum → [Messungen, nach Uhrzeit sortiert]
   messungen.forEach((m) => {
     const ts = m.timestampGMT || m.date || m.samplePk;
     const datum = m.calendarDate || m.summaryDate || (isNum_(ts) ? Utilities.formatDate(new Date(ts), TZ, 'yyyy-MM-dd') : null);
     const gewicht = kg(m.weight);
     if (!datum || gewicht == null) return;
-    const zeit = isNum_(ts) ? ts : 0;
-    const neu = {
-      zeit: zeit, datum: datum, gewicht: gewicht,
+    const id = m.samplePk || `${ts}-${m.weight}`;
+    if (gesehen[id]) return;
+    gesehen[id] = true;
+    (proTag[datum] = proTag[datum] || []).push({
+      ts: isNum_(ts) ? ts : 0, gewicht: gewicht,
+      zeit: isNum_(ts) ? Utilities.formatDate(new Date(ts), TZ, 'HH:mm') : null,
       koerperfett: isNum_(m.bodyFat) ? round_(m.bodyFat, 1) : null,
       muskelmasse: kg(m.muscleMass), bmi: isNum_(m.bmi) ? round_(m.bmi, 1) : null,
-      uhrzeit: isNum_(ts) ? Utilities.formatDate(new Date(ts), TZ, 'HH:mm') : null,
-    };
-    const alt = proTag[datum];
-    // je Tag gilt die letzte Messung; fehlende Körperwerte werden aus anderen Messungen des Tages ergänzt
-    const [vorn, hinten] = !alt || zeit >= alt.zeit ? [neu, alt] : [alt, neu];
-    if (hinten) ['koerperfett', 'muskelmasse', 'bmi'].forEach((k) => { if (vorn[k] == null) vorn[k] = hinten[k]; });
-    proTag[datum] = vorn;
+    });
   });
 
-  const ergebnis = Object.keys(proTag).sort().map((d) => proTag[d]);
+  // Tageswert = ERSTE Messung des Tages (Morgengewicht). Körperwerte aus der ersten Messung, die welche hat
+  // (nach dem Training sind Körperfett/Muskelmasse wegen des Wasserverlusts wenig aussagekräftig).
+  const ergebnis = Object.keys(proTag).sort().map((datum) => {
+    const liste = proTag[datum].sort((x, y) => x.ts - y.ts);
+    const erste = liste[0];
+    const mitKoerper = liste.find((x) => x.koerperfett != null || x.muskelmasse != null) || {};
+    return {
+      datum: datum, gewicht: erste.gewicht, uhrzeit: erste.zeit,
+      koerperfett: mitKoerper.koerperfett ?? null, muskelmasse: mitKoerper.muskelmasse ?? null, bmi: mitKoerper.bmi ?? erste.bmi ?? null,
+      messungen: liste.map((x) => {
+        const o = { zeit: x.zeit, gewicht: x.gewicht };
+        if (x.koerperfett != null) o.koerperfett = x.koerperfett;
+        if (x.muskelmasse != null) o.muskelmasse = x.muskelmasse;
+        return o;
+      }),
+    };
+  });
+
   ergebnis.forEach((t) => {
-    const h = { datum: t.datum, gewicht: t.gewicht, gewichtQuelle: 'Garmin', aktualisiert: new Date().toISOString() };
+    const h = { datum: t.datum, gewicht: t.gewicht, gewichtQuelle: 'Garmin', gewichtMessungen: t.messungen, aktualisiert: new Date().toISOString() };
     if (t.koerperfett != null) h.koerperfett = t.koerperfett;
     if (t.muskelmasse != null) h.muskelmasse = t.muskelmasse;
     if (t.bmi != null) h.bmi = t.bmi;
     if (t.uhrzeit) h.gewichtZeit = t.uhrzeit;
     patch_(`users/${UID}/health/${t.datum}`, h);
+    // Tagesdokument: von Hand eingetragene Werte (ohne Quelle) bleiben unangetastet,
+    // automatisch übernommene (Garmin/Apple Health) werden auf das Morgengewicht korrigiert.
     const vorhanden = getDoc_(`users/${UID}/tage/${t.datum}`) || {};
-    if (vorhanden.gewicht == null) patch_(`users/${UID}/tage/${t.datum}`, { datum: t.datum, gewicht: t.gewicht, gewichtQuelle: 'Garmin' });
+    const automatisch = vorhanden.gewicht == null || vorhanden.gewichtQuelle === 'Garmin' || vorhanden.gewichtQuelle === 'Apple Health';
+    if (automatisch && (vorhanden.gewicht !== t.gewicht || vorhanden.gewichtQuelle !== 'Garmin')) {
+      patch_(`users/${UID}/tage/${t.datum}`, { datum: t.datum, gewicht: t.gewicht, gewichtQuelle: 'Garmin' });
+    }
   });
   PropertiesService.getScriptProperties().setProperty('LETZTER_GARMIN_ABGLEICH',
-    new Date().toISOString() + ' OK ' + ergebnis.map((t) => `${t.datum}=${t.gewicht}`).join(', '));
+    new Date().toISOString() + ' OK ' + ergebnis.map((t) => `${t.datum}=${t.gewicht}` + (t.messungen.length > 1 ? ` (${t.messungen.length} Messungen)` : '')).join(', '));
   return { tage: ergebnis, roh: mitRoh ? text.slice(0, 600) : null };
 }

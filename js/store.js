@@ -184,6 +184,10 @@ function createDemoStore() {
           ruhepuls: Math.round(53 + Math.random() * 5 + (i === 0 ? 3 : 0)),
           koerperfett: round1(21.4 - (1 - i / days) * 0.8 + (Math.random() - 0.5) * 0.4),
           muskelmasse: round1(34 + (1 - i / days) * 0.4 + (Math.random() - 0.5) * 0.3),
+          gewichtMessungen: i % 3 === 0 ? undefined : (() => {
+            const w = round1(95.4 - (1 - i / days) * 1.6 + (Math.random() - 0.5) * 0.4);
+            return [{ zeit: '06:52', gewicht: w }, { zeit: '17:14', gewicht: round1(w - 0.3) }, { zeit: '18:49', gewicht: round1(w - 0.6 - Math.random() * 0.8) }];
+          })(),
           hrv: Math.round(45 + Math.random() * 20 - (i === 0 ? 8 : 0)),
           schlaf: { gesamt: round1(g), tief: round1(g * 0.12), rem: round1(g * 0.24), kern: round1(g * 0.62), wach: 0.1, start: '01:12', ende: '06:58' },
         };

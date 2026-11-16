@@ -2,7 +2,7 @@ import { firebaseConfig } from './firebase-config.js';
 import { createStore } from './store.js';
 import { berichtErstellen } from './bericht.js';
 
-const VERSION = '1.5.0';
+const VERSION = '1.6.0';
 
 // Die fünf täglichen Aufgaben, aus denen sich die Konstanz berechnet
 const TASKS = [
@@ -272,6 +272,9 @@ async function renderHeute() {
     koerper.koerperfett != null ? `Körperfett ${fmt(koerper.koerperfett)} %` : '',
     koerper.muskelmasse != null ? `Muskelmasse ${fmt(koerper.muskelmasse)} kg` : '',
   ].filter(Boolean).join(' · ');
+  if ((koerper.gewichtMessungen || []).length > 1) {
+    $('#gewicht-info').textContent += ` — Messungen: ${koerper.gewichtMessungen.map((m) => `${m.zeit} ${fmt(m.gewicht)}`).join(' · ')}`;
+  }
   fillBp('m', day.bdMorgen);
   fillBp('a', day.bdAbend);
   setToggle('tabletteMorgen', !!day.tabletteMorgen);
@@ -407,6 +410,25 @@ function aktText(a) {
   if (a.last != null) teile.push(`Last ${a.last}`);
   return `${a.name || SPORT[a.typ] || 'Training'} · ${teile.join(' · ')}`;
 }
+// Gewicht vor/nach einer Trainingseinheit aus den Waagen-Messungen des Tages (Garmin)
+function minuten(hhmm) { if (!hhmm) return null; const [h, m] = hhmm.split(':').map(Number); return h * 60 + m; }
+function schweiss(a, messungen) {
+  const start = minuten(a.start);
+  if (start == null || !messungen || messungen.length < 2) return null;
+  const ende = start + (a.dauerMin || 0);
+  const ms = messungen.map((m) => ({ ...m, t: minuten(m.zeit) })).filter((m) => m.t != null).sort((x, y) => x.t - y.t);
+  const vor = ms.filter((m) => m.t <= start + 5 && m.t >= start - 150).pop();
+  const nach = ms.find((m) => m.t >= ende - 5 && m.t <= ende + 180);
+  if (!vor || !nach || vor === nach) return null;
+  const verlust = round1(vor.gewicht - nach.gewicht);
+  const stunden = (a.dauerMin || 0) / 60;
+  return { vor, nach, verlust, proStunde: stunden > 0.25 && verlust > 0 ? round1(verlust / stunden) : null };
+}
+function schweissText(sw) {
+  const basis = `vorher ${fmt(sw.vor.gewicht)} (${sw.vor.zeit}) → nachher ${fmt(sw.nach.gewicht)} kg (${sw.nach.zeit})`;
+  if (sw.verlust <= 0) return `${basis}: kein Gewichtsverlust – gut getrunken`;
+  return `${basis}: −${fmt(sw.verlust)} kg ≈ ${fmt(sw.verlust)} l Flüssigkeitsverlust${sw.proStunde ? ` (${fmt(sw.proStunde)} l/h)` : ''}, zzgl. Getrunkenem`;
+}
 function tsbTxt(t) { return `${t > 0 ? '+' : ''}${fmt(t, 0)}`; }
 
 function ampel(d, q, day, health, dienste, training = {}) {
@@ -500,7 +522,10 @@ function erholungKarte(d, day, health, dienste, isToday, training = {}) {
         <div class="kpi"><b>${fmt(tr.form.atl, 0)}</b><span>Ermüdung (ATL)</span></div>
         <div class="kpi"><b>${tsbTxt(tr.form.tsb)}</b><span>Form (TSB)${tr.formVomVortag ? ' · gestern' : ''}</span></div>
       </div>` : ''}
-      ${heuteAkt.length ? `<p class="small" style="margin:10px 0 0;color:var(--text)">Heute trainiert: ${heuteAkt.map((x) => escapeHtml(aktText(x))).join('; ')}</p>` : ''}
+      ${heuteAkt.length ? `<div class="small" style="margin:10px 0 0;color:var(--text)">${d === todayKey() ? 'Heute' : 'An diesem Tag'} trainiert:${heuteAkt.map((x) => {
+        const sw = schweiss(x, health[d]?.gewichtMessungen);
+        return `<div style="margin-top:4px">${escapeHtml(aktText(x))}${sw ? `<div class="muted" style="margin-top:2px">⚖︎ ${escapeHtml(schweissText(sw))}</div>` : ''}</div>`;
+      }).join('')}</div>` : ''}
       ${morgenTxt ? `<p class="small" style="margin:10px 0 0;color:var(--text)">${morgenTxt}</p>` : ''}
       <p class="muted small" style="margin:10px 0 0">Faustregel aus Schlaf, Ruhepuls, HRV, Form und Diensten im Vergleich zu deinen letzten 4 Wochen – dein Tages-Check bleibt maßgeblich.${tr.form ? '' : ' Trainingsdaten kommen aus Analytics, sobald dort abgeglichen wurde.'}</p>
     </div>`;
@@ -655,6 +680,8 @@ async function renderVerlauf() {
   const atl = keys0(from, n).map((k) => training[k]?.atl ?? null);
   const tsb = keys0(from, n).map((k) => training[k]?.tsb ?? null);
   const tLast = keys0(from, n).map((k) => (training[k] ? training[k].last || null : null));
+  const schweissListe = keys0(from, n).flatMap((k) => (training[k]?.aktivitaeten || [])
+    .map((x) => ({ k, x, sw: schweiss(x, health[k]?.gewichtMessungen) })).filter((e) => e.sw)).reverse().slice(0, 10);
   const keys = Array.from({ length: n }, (_, i) => addDays(from, i));
   const val = (k, f) => f(map[k] || {});
   const hval = (k, f) => f(health[k] || {});
@@ -768,6 +795,13 @@ async function renderVerlauf() {
         { values: tsb, color: '#f2b84b', type: 'line', width: 2.5 },
       ], { thresholds: [0, -25], height: 120 }) : '<div class="empty">Noch keine Trainingsdaten – in Analytics den Abgleich einschalten</div>'}
       <div class="chart-legend"><span><i style="background:#5aa9f0"></i>Fitness (CTL)</span><span><i style="background:#ef6a6a"></i>Ermüdung (ATL)</span><span><i style="background:#f2b84b"></i>Form (TSB)</span><span><i style="background:#5a6470"></i>Tageslast</span></div>
+      ${schweissListe.length ? `
+      <div class="sub" style="margin:14px 0 6px">Flüssigkeitsverlust je Einheit (Waage vorher/nachher)</div>
+      <div class="list">${schweissListe.map(({ k, x, sw }) => `
+        <div class="schweiss-row"><span>${fmtShort(k)} · ${escapeHtml(x.name || SPORT[x.typ] || 'Training')} · ${x.dauerMin} min</span>
+          <strong>${sw.verlust > 0 ? `−${fmt(sw.verlust)} kg${sw.proStunde ? ` · ${fmt(sw.proStunde)} l/h` : ''}` : '± 0'}</strong></div>`).join('')}
+      </div>
+      <p class="muted small" style="margin:8px 0 0">1 kg Gewichtsverlust ≈ 1 l Flüssigkeit; Getrunkenes während der Einheit kommt noch dazu.</p>` : ''}
     </div>
 
     <div class="card">

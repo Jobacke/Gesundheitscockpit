@@ -43,5 +43,9 @@ Nach jeder Änderung an `Code.gs`: **Bereitstellen → Bereitstellungen verwalte
 - Garmin Connect (Web) → Einstellungen → **Persönlicher API-Schlüssel** → *Schlüssel erstellen* (Laufzeit 1 Jahr; Garmin mailt vor Ablauf).
 - Schlüssel in Apps Script als Skripteigenschaft **`GARMIN_API_KEY`** eintragen (nie in Chats oder Dateien).
 - Funktion **`garminTesten`** ausführen: zeigt die Gewichtswerte der letzten 14 Tage.
-- Danach holt die 15-Minuten-Zeitsteuerung (`erinnerungPruefen`) das Gewicht der letzten 3 Tage automatisch: `health/{Datum}` (Gewicht, ggf. Körperfett, Muskelmasse, BMI) und `tage/{Datum}` (nur wenn noch leer, Quelle „Garmin“).
+- Danach holt die 15-Minuten-Zeitsteuerung (`erinnerungPruefen`) das Gewicht der letzten 3 Tage automatisch.
+- **Tageswert = erste Messung des Tages** (Morgengewicht), Körperfett/Muskelmasse aus der ersten Messung mit diesen Werten. Alle Messungen mit Uhrzeit stehen in `health/{Datum}.gewichtMessungen`.
+- `tage/{Datum}.gewicht`: von Hand eingetragene Werte bleiben; automatisch übernommene werden auf das Morgengewicht korrigiert (Quelle „Garmin“).
+- Das Cockpit errechnet aus den Messungen vor/nach einer Trainingseinheit (aus Analytics) den Flüssigkeitsverlust.
+- In Health Auto Export bei „Cockpit Tageswerte“ und „Cockpit Heute“ **kein Gewicht** mehr auswählen – Garmin ist die einzige Quelle.
 - Protokoll: Skripteigenschaft `LETZTER_GARMIN_ABGLEICH`. Schlüssel abgelaufen → neuen erstellen und `GARMIN_API_KEY` ersetzen.
