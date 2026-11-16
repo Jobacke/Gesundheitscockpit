@@ -2,7 +2,7 @@ import { firebaseConfig } from './firebase-config.js';
 import { createStore } from './store.js';
 import { berichtErstellen } from './bericht.js';
 
-const VERSION = '1.6.1';
+const VERSION = '1.6.2';
 
 // Die fünf täglichen Aufgaben, aus denen sich die Konstanz berechnet
 const TASKS = [
@@ -277,6 +277,8 @@ async function renderHeute() {
   }
   fillBp('m', day.bdMorgen);
   fillBp('a', day.bdAbend);
+  fillBpWeitere('m', health[d]?.bdMessungen, day.bdMorgen);
+  fillBpWeitere('a', health[d]?.bdMessungen, day.bdAbend);
   setToggle('tabletteMorgen', !!day.tabletteMorgen);
   setToggle('tabletteAbend', !!day.tabletteAbend);
   setBefinden(day.befinden);
@@ -541,6 +543,7 @@ function bpBlock(p, title) {
         <label>Puls<input id="${p}-puls" data-bp="${p}" inputmode="numeric" pattern="[0-9]*" placeholder="–" autocomplete="off"></label>
       </div>
       <div class="bp-time" id="${p}-info"></div>
+      <div class="bp-time" id="${p}-weitere"></div>
     </div>`;
 }
 function fillBp(p, bp) {
@@ -560,6 +563,16 @@ function fillBpInfo(p, bp) {
   if (overLimit(bp)) parts.push('⚠︎ über deinem Grenzwert');
   el.textContent = parts.join(' · ');
   el.style.color = overLimit(bp) ? 'var(--warn)' : '';
+}
+// Weitere Messreihen desselben Halbtags (z. B. nach der Tablette) – der Tageswert ist die erste Messreihe
+function fillBpWeitere(p, messungen, bp) {
+  const el = $(`#${p}-weitere`);
+  if (!el) return;
+  const halb = (messungen || []).filter((m) => m.zeit && (Number(m.zeit.slice(0, 2)) < 12) === (p === 'm'));
+  const weitere = halb.filter((m) => !(bp && bp.zeit === m.zeit));
+  if (!weitere.length) { el.textContent = ''; return; }
+  const txt = weitere.map((m) => `${m.zeit} ${m.sys}/${m.dia}${m.puls ? ` · P ${m.puls}` : ''}${m.anzahl > 1 ? ` (Ø ${m.anzahl})` : ''}`).join('  |  ');
+  el.textContent = `${bp && bp.zeit && halb.length > weitere.length ? 'Weitere Messungen' : 'Messungen'}: ${txt}`;
 }
 function toggleBtn(key, label) {
   return `<button class="toggle" data-toggle="${key}" type="button"><span class="dot"></span><span>${label}</span></button>`;

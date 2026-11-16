@@ -87,6 +87,12 @@ function verarbeiten_(payload) {
         case 'weight_body_mass':
           if (isNum_(e.qty)) t.health.gewicht = round_(e.qty, 1);
           break;
+        case 'heart_rate': {
+          // Puls zur Blutdruckmessung: Omron schreibt ihn als Herzfrequenz nach Apple Health
+          const wert = [e.qty, e.Avg, e.avg, e.Max].find(isNum_);
+          if (wert != null) (t.hf = t.hf || []).push({ ts: p.ts, wert: wert, quelle: String(e.source || '') });
+          break;
+        }
         case 'resting_heart_rate':
           if (isNum_(e.qty)) t.health.ruhepuls = Math.round(e.qty);
           break;
@@ -146,9 +152,15 @@ function verarbeiten_(payload) {
     einzel.forEach((r) => {
       r.sys = Math.round(r.werte.reduce((x, b) => x + b.sys, 0) / r.werte.length);
       r.dia = Math.round(r.werte.reduce((x, b) => x + b.dia, 0) / r.werte.length);
+      // Puls: Herzfrequenzwerte im Zeitfenster der Messreihe (bevorzugt vom Blutdruckgerät)
+      const ende = r.werte[r.werte.length - 1].ts;
+      const fenster = (t.hf || []).filter((h) => h.ts >= r.ts0 - 60000 && h.ts <= ende + 180000);
+      const vomGeraet = fenster.filter((h) => /omron|blutdruck|blood/i.test(h.quelle));
+      const hf = vomGeraet.length ? vomGeraet : fenster;
+      r.puls = hf.length ? Math.round(hf.reduce((x, h) => x + h.wert, 0) / hf.length) : null;
     });
     const mittel = t.bd.filter((b) => b.tagesmittel);
-    if (einzel.length) t.health.bdMessungen = einzel.map((r) => ({ sys: r.sys, dia: r.dia, zeit: r.zeit, anzahl: r.werte.length, einzel: r.werte.map((b) => `${b.sys}/${b.dia}`).join(' · ') }));
+    if (einzel.length) t.health.bdMessungen = einzel.map((r) => ({ sys: r.sys, dia: r.dia, puls: r.puls, zeit: r.zeit, anzahl: r.werte.length, einzel: r.werte.map((b) => `${b.sys}/${b.dia}`).join(' · ') }));
     if (mittel.length) t.health.bdTagesmittel = { sys: mittel[0].sys, dia: mittel[0].dia };
 
     if (Object.keys(t.health).length) {
@@ -158,15 +170,16 @@ function verarbeiten_(payload) {
 
     // Tagesdokument nur dort ergänzen, wo noch nichts eingetragen ist
     const fill = {};
-    const morgen = einzel.filter((b) => Number(b.zeit.slice(0, 2)) < MORGEN_BIS_STUNDE)[0];
+    const morgen = einzel.filter((b) => Number(b.zeit.slice(0, 2)) < MORGEN_BIS_STUNDE)[0];   // erste Messreihe des Morgens
     const abendListe = einzel.filter((b) => Number(b.zeit.slice(0, 2)) >= MORGEN_BIS_STUNDE);
-    const abend = abendListe[abendListe.length - 1];
+    const abend = abendListe[0];   // erste Messreihe ab 12 Uhr (vor der Abendtablette); weitere bleiben in bdMessungen
     if (t.health.gewicht != null || morgen || abend) {
       const vorhanden = getDoc_(`users/${UID}/tage/${datum}`) || {};
       if (t.health.gewicht != null && vorhanden.gewicht == null) { fill.gewicht = t.health.gewicht; fill.gewichtQuelle = 'Apple Health'; }
       // von Hand eingetragene Werte bleiben; automatisch übernommene werden mit dem Mittelwert der Messreihe aktualisiert
-      const bdNeu = (alt, r) => (alt == null || (alt.quelle === 'Apple Health' && (alt.sys !== r.sys || alt.dia !== r.dia || alt.zeit !== r.zeit)));
-      const bdWert = (r) => ({ sys: r.sys, dia: r.dia, puls: null, zeit: r.zeit, quelle: 'Apple Health', anzahl: r.werte.length });
+      const bdNeu = (alt, r) => (alt == null || (alt.quelle === 'Apple Health' &&
+        (alt.sys !== r.sys || alt.dia !== r.dia || alt.zeit !== r.zeit || alt.anzahl !== r.werte.length || (r.puls != null && alt.puls !== r.puls))));
+      const bdWert = (r) => ({ sys: r.sys, dia: r.dia, puls: r.puls, zeit: r.zeit, quelle: 'Apple Health', anzahl: r.werte.length });
       if (morgen && bdNeu(vorhanden.bdMorgen, morgen)) fill.bdMorgen = bdWert(morgen);
       if (abend && bdNeu(vorhanden.bdAbend, abend)) fill.bdAbend = bdWert(abend);
       if (Object.keys(fill).length) {

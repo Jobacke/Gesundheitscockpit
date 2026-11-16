@@ -53,5 +53,6 @@ Nach jeder Änderung an `Code.gs`: **Bereitstellen → Bereitstellungen verwalte
 ## Blutdruck-Messreihen (Omron X7 Smart AFib)
 
 - Das X7 misst dreimal und schreibt alle Einzelwerte nach Apple Health. Der Empfänger fasst Werte innerhalb von 10 Minuten (`BD_REIHE_MIN`) zu einer Messreihe zusammen und übernimmt den **Mittelwert** (`anzahl` = Zahl der Einzelwerte, in `health.bdMessungen` auch die Einzelwerte).
+- Tageswert morgens = **erste** Messreihe vor 12 Uhr, abends = **erste** Messreihe ab 12 Uhr (jeweils vor der Tablette). Weitere Messreihen stehen in `health.bdMessungen` und im Cockpit unter dem Blutdruckfeld.
 - Automatisch übernommene Werte werden aktualisiert, von Hand eingetragene bleiben.
 - Änderung betrifft `doPost` → nach dem Einfügen **Bereitstellen → Bereitstellungen verwalten → Bearbeiten → Version: Neue Version** (Adresse bleibt gleich).
