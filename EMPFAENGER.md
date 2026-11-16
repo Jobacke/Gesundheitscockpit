@@ -29,3 +29,11 @@ Damit gelangen Schlaf, Ruhepuls, HRV, Gewicht und Blutdruck automatisch vom iPho
 ## Änderungen am Code
 
 Nach jeder Änderung an `Code.gs`: **Bereitstellen → Bereitstellungen verwalten → Bearbeiten (Stift) → Version „Neue Version“ → Bereitstellen**. Die URL bleibt gleich.
+
+## Erinnerungs-Mails (ab v1.4.2, ersetzt die Kurzbefehl-Erinnerungen)
+
+- Funktion **`erinnerungEinrichten`** einmal im Editor ausführen: legt eine Zeitsteuerung alle 15 Minuten an und schickt eine Test-Mail.
+- Ab **08:45** wird geprüft: Wiegen, Blutdruck morgens, Morgentablette. Ab **18:30**: zusätzlich Blutdruck abends und Abendtablette (plus noch Offenes vom Morgen).
+- Fehlt etwas, kommt **eine** Mail pro Termin; ist alles eingetragen, keine.
+- Empfänger: das Google-Konto des Skripts – oder die Skripteigenschaft `MAIL_AN` (andere Adresse).
+- Protokoll: Skripteigenschaft `LETZTE_ERINNERUNG`. Testen jederzeit mit `erinnerungTesten`.

@@ -2,7 +2,7 @@ import { firebaseConfig } from './firebase-config.js';
 import { createStore } from './store.js';
 import { berichtErstellen } from './bericht.js';
 
-const VERSION = '1.4.1';
+const VERSION = '1.4.2';
 
 // Die fünf täglichen Aufgaben, aus denen sich die Konstanz berechnet
 const TASKS = [
@@ -840,11 +840,10 @@ async function renderMehr() {
     <div class="card">
       <div class="card-head"><h2>Erinnerungen</h2></div>
       <div class="times">
-        <div><span>Normaler Tag</span><strong>06:30</strong></div>
-        <div><span>Nach Nachtdienst</span><strong>08:00</strong></div>
-        <div><span>Abendrunde + Abendtablette</span><strong>18:00</strong></div>
+        <div><span>Morgens: Wiegen, Blutdruck, Morgentablette</span><strong>08:45</strong></div>
+        <div><span>Abends: Blutdruck, Abendtablette + Offenes</span><strong>18:30</strong></div>
       </div>
-      <p class="hint" style="margin:10px 0 0">Die Erinnerungen kommen über die iOS-Kurzbefehle „Gesundheit morgens“, „Gesundheit nach Nachtdienst“ und „Gesundheit abends“ (Anleitung: <b>KURZBEFEHLE.md</b>). Nach Nachtdiensten (RNM/RNH) kommt die Morgen-Erinnerung erst um 8 Uhr.</p>
+      <p class="hint" style="margin:10px 0 0">Der Empfänger prüft zu diesen Zeiten, was für heute noch fehlt, und schickt dann eine <b>Mail</b>. Ist alles eingetragen, kommt keine Mail (Anleitung: <b>EMPFAENGER.md</b>).</p>
     </div>
 
     <div class="card">

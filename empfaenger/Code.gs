@@ -329,3 +329,83 @@ function testMitBeispiel() {
   ] } });
   Logger.log(JSON.stringify(res));
 }
+
+/* ---------- Erinnerungs-Mails (08:45 und 18:30) ---------- */
+// Läuft alle 15 Minuten (Zeitsteuerung aus erinnerungEinrichten). Ab 08:45 bzw. 18:30 wird einmal pro Tag
+// geprüft, was im Cockpit für heute noch fehlt – nur dann geht eine Mail raus.
+// Empfänger: Skripteigenschaft MAIL_AN (falls gesetzt), sonst das Google-Konto, dem dieses Skript gehört.
+
+const COCKPIT_URL = 'https://cockpit.vjbackhaus.de';
+const ERINNERUNG = [
+  { name: 'morgens', ab: 8 * 60 + 45, felder: ['gewicht', 'bdMorgen', 'tabletteMorgen'] },
+  { name: 'abends', ab: 18 * 60 + 30, felder: ['gewicht', 'bdMorgen', 'tabletteMorgen', 'bdAbend', 'tabletteAbend'] },
+];
+const ERINNERUNG_FENSTER_MIN = 120;   // wird der Zeitpunkt verpasst, holt das Skript ihn bis zu 2 Stunden später nach
+const AUFGABE = {
+  gewicht: 'Wiegen', bdMorgen: 'Blutdruck morgens', tabletteMorgen: 'Morgentablette',
+  bdAbend: 'Blutdruck abends', tabletteAbend: 'Abendtablette',
+};
+
+function erinnerungEinrichten() {
+  const da = ScriptApp.getProjectTriggers().some((t) => t.getHandlerFunction() === 'erinnerungPruefen');
+  if (!da) ScriptApp.newTrigger('erinnerungPruefen').timeBased().everyMinutes(15).create();
+  Logger.log(da ? '✓ Zeitsteuerung für Erinnerungen war schon vorhanden.' : '✓ Zeitsteuerung für Erinnerungen angelegt (alle 15 Minuten, Mails ab 08:45 und 18:30).');
+  Logger.log('Mails gehen an: ' + empfaenger_());
+  erinnerungTesten();
+}
+
+// Schickt sofort eine Test-Mail mit dem aktuellen Stand (unabhängig von der Uhrzeit)
+function erinnerungTesten() {
+  const datum = Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd');
+  const fehlt = fehlend_(datum, ERINNERUNG[1].felder);
+  mailSenden_(datum, fehlt.length ? fehlt : ['(Test) – heute ist schon alles eingetragen'], 'Test');
+  Logger.log('✓ Test-Mail gesendet. Fehlt heute: ' + (fehlt.map((f) => AUFGABE[f]).join(', ') || 'nichts'));
+}
+
+function erinnerungPruefen() {
+  const jetzt = new Date();
+  const datum = Utilities.formatDate(jetzt, TZ, 'yyyy-MM-dd');
+  const minuten = Number(Utilities.formatDate(jetzt, TZ, 'H')) * 60 + Number(Utilities.formatDate(jetzt, TZ, 'm'));
+  const props = PropertiesService.getScriptProperties();
+  // Spätesten fälligen Zeitpunkt nehmen (abends vor morgens)
+  const slot = ERINNERUNG.slice().reverse().find((s) => minuten >= s.ab && minuten < s.ab + ERINNERUNG_FENSTER_MIN);
+  if (!slot) return;
+  const merker = 'ERINNERUNG_' + slot.name.toUpperCase();
+  if (props.getProperty(merker) === datum) return;   // heute schon geprüft
+  const fehlt = fehlend_(datum, slot.felder);
+  props.setProperty(merker, datum);
+  if (fehlt.length) mailSenden_(datum, fehlt, slot.name);
+  props.setProperty('LETZTE_ERINNERUNG', `${new Date().toISOString()} ${slot.name}: ${fehlt.length ? 'Mail – fehlt ' + fehlt.join(', ') : 'alles erledigt, keine Mail'}`);
+}
+
+function fehlend_(datum, felder) {
+  const t = getDoc_(`users/${UID}/tage/${datum}`) || {};
+  const erledigt = {
+    gewicht: t.gewicht != null,
+    bdMorgen: !!(t.bdMorgen && t.bdMorgen.sys != null),
+    tabletteMorgen: t.tabletteMorgen === true,
+    bdAbend: !!(t.bdAbend && t.bdAbend.sys != null),
+    tabletteAbend: t.tabletteAbend === true,
+  };
+  return felder.filter((f) => !erledigt[f]);
+}
+
+function empfaenger_() {
+  return PropertiesService.getScriptProperties().getProperty('MAIL_AN') || Session.getEffectiveUser().getEmail();
+}
+
+function mailSenden_(datum, fehlt, art) {
+  const namen = fehlt.map((f) => AUFGABE[f] || f);
+  const tag = Utilities.formatDate(new Date(datum + 'T12:00:00'), TZ, 'dd.MM.');
+  const betreff = (art === 'Test' ? '[Test] ' : '') + `Gesundheitscockpit heute (${tag}) noch unvollständig`;
+  const text = `Für heute (${tag}) fehlt im Gesundheitscockpit noch:\n\n${namen.map((n) => '• ' + n).join('\n')}\n\nZum Eintragen: ${COCKPIT_URL}\n\n` +
+    'Hinweis: Gewicht und Blutdruck kommen über Apple Health mit etwas Verzögerung an. Hast du gerade erst gemessen, ist die Mail vermutlich schon erledigt.';
+  const html = `<div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;max-width:520px;color:#1f2933">
+    <h2 style="color:#15294a;margin:0 0 6px">Noch offen für heute (${tag})</h2>
+    <p style="margin:0 0 14px;color:#6b7785">Gesundheitscockpit – Erinnerung ${art === 'Test' ? '(Test)' : art}</p>
+    <ul style="padding-left:20px;font-size:16px;line-height:1.7;margin:0 0 18px">${namen.map((n) => `<li><b>${n}</b></li>`).join('')}</ul>
+    <a href="${COCKPIT_URL}" style="display:inline-block;background:#e8644f;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600">Cockpit öffnen</a>
+    <p style="margin:18px 0 0;font-size:12px;color:#9aa5b1">Gewicht und Blutdruck kommen über Apple Health mit etwas Verzögerung an. Hast du gerade erst gemessen, ist diese Mail vermutlich schon erledigt.</p>
+  </div>`;
+  MailApp.sendEmail({ to: empfaenger_(), subject: betreff, body: text, htmlBody: html, name: 'Gesundheitscockpit' });
+}
