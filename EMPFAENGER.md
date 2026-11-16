@@ -37,3 +37,11 @@ Nach jeder Änderung an `Code.gs`: **Bereitstellen → Bereitstellungen verwalte
 - Fehlt etwas, kommt **eine** Mail pro Termin; ist alles eingetragen, keine.
 - Empfänger: das Google-Konto des Skripts – oder die Skripteigenschaft `MAIL_AN` (andere Adresse).
 - Protokoll: Skripteigenschaft `LETZTE_ERINNERUNG`. Testen jederzeit mit `erinnerungTesten`.
+
+## Gewicht direkt aus Garmin Connect (Personal API)
+
+- Garmin Connect (Web) → Einstellungen → **Persönlicher API-Schlüssel** → *Schlüssel erstellen* (Laufzeit 1 Jahr; Garmin mailt vor Ablauf).
+- Schlüssel in Apps Script als Skripteigenschaft **`GARMIN_API_KEY`** eintragen (nie in Chats oder Dateien).
+- Funktion **`garminTesten`** ausführen: zeigt die Gewichtswerte der letzten 14 Tage.
+- Danach holt die 15-Minuten-Zeitsteuerung (`erinnerungPruefen`) das Gewicht der letzten 3 Tage automatisch: `health/{Datum}` (Gewicht, ggf. Körperfett, Muskelmasse, BMI) und `tage/{Datum}` (nur wenn noch leer, Quelle „Garmin“).
+- Protokoll: Skripteigenschaft `LETZTER_GARMIN_ABGLEICH`. Schlüssel abgelaufen → neuen erstellen und `GARMIN_API_KEY` ersetzen.

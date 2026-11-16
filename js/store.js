@@ -182,6 +182,8 @@ function createDemoStore() {
         health[d] = {
           datum: d,
           ruhepuls: Math.round(53 + Math.random() * 5 + (i === 0 ? 3 : 0)),
+          koerperfett: round1(21.4 - (1 - i / days) * 0.8 + (Math.random() - 0.5) * 0.4),
+          muskelmasse: round1(34 + (1 - i / days) * 0.4 + (Math.random() - 0.5) * 0.3),
           hrv: Math.round(45 + Math.random() * 20 - (i === 0 ? 8 : 0)),
           schlaf: { gesamt: round1(g), tief: round1(g * 0.12), rem: round1(g * 0.24), kern: round1(g * 0.62), wach: 0.1, start: '01:12', ende: '06:58' },
         };

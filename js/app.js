@@ -2,7 +2,7 @@ import { firebaseConfig } from './firebase-config.js';
 import { createStore } from './store.js';
 import { berichtErstellen } from './bericht.js';
 
-const VERSION = '1.4.2';
+const VERSION = '1.5.0';
 
 // Die fünf täglichen Aufgaben, aus denen sich die Konstanz berechnet
 const TASKS = [
@@ -266,7 +266,12 @@ async function renderHeute() {
   // Werte eintragen
   const g = $('#gewicht');
   if (day.gewicht != null) g.value = fmt(day.gewicht);
-  $('#gewicht-info').textContent = day.gewicht != null && day.gewichtQuelle ? `aus ${day.gewichtQuelle}` : '';
+  const koerper = health[d] || {};
+  $('#gewicht-info').textContent = [
+    day.gewicht != null && day.gewichtQuelle ? `aus ${day.gewichtQuelle}` : '',
+    koerper.koerperfett != null ? `Körperfett ${fmt(koerper.koerperfett)} %` : '',
+    koerper.muskelmasse != null ? `Muskelmasse ${fmt(koerper.muskelmasse)} kg` : '',
+  ].filter(Boolean).join(' · ');
   fillBp('m', day.bdMorgen);
   fillBp('a', day.bdAbend);
   setToggle('tabletteMorgen', !!day.tabletteMorgen);
@@ -656,6 +661,15 @@ async function renderVerlauf() {
   const schlafH = keys.map((k) => hval(k, (h) => h.schlaf?.gesamt ?? null));
   const ruhepuls = keys.map((k) => hval(k, (h) => h.ruhepuls ?? null));
   const hrvs = keys.map((k) => hval(k, (h) => h.hrv ?? null));
+  const fett = keys.map((k) => hval(k, (h) => h.koerperfett ?? null));
+  const muskel = keys.map((k) => hval(k, (h) => h.muskelmasse ?? null));
+  const fettAvg = movingAvg(fett, 7), muskelAvg = movingAvg(muskel, 7);
+  const zuletzt = (arr) => [...arr].reverse().find((v) => v != null) ?? null;
+  const veraenderung = (avgArr) => {
+    const a = avgArr.find((v) => v != null), b = zuletzt(avgArr);
+    return a != null && b != null ? b - a : null;
+  };
+  const signedFmt = (v) => (v == null ? '–' : (v > 0 ? '+' : '') + fmt(v));
 
   const weights = keys.map((k) => val(k, (d) => d.gewicht ?? null));
   const wAvg = movingAvg(weights, 7);
@@ -698,6 +712,28 @@ async function renderVerlauf() {
         <div class="kpi"><b>${deltaW == null ? '–' : (deltaW > 0 ? '+' : '') + fmt(deltaW)}</b><span>Veränderung</span></div>
       </div>
     </div>
+
+    ${fett.some((v) => v != null) || muskel.some((v) => v != null) ? `
+    <div class="card">
+      <div class="card-head"><div><h2>Körperzusammensetzung</h2><div class="sub">Garmin-Waage</div></div></div>
+      <div class="sub" style="margin:2px 0 4px">Körperfett in %</div>
+      ${lineChart(keys, [
+        { values: fett, color: '#f2b84b', type: 'dots' },
+        { values: fettAvg, color: '#e8644f', type: 'line', width: 2.5 },
+      ], { height: 140 })}
+      <div class="sub" style="margin:10px 0 4px">Muskelmasse in kg</div>
+      ${lineChart(keys, [
+        { values: muskel, color: '#8fc7ff', type: 'dots' },
+        { values: muskelAvg, color: '#3d8bfd', type: 'line', width: 2.5 },
+      ], { height: 140 })}
+      <div class="chart-legend"><span><i style="background:#e8644f"></i>Körperfett Ø 7 Tage</span><span><i style="background:#3d8bfd"></i>Muskelmasse Ø 7 Tage</span></div>
+      <div class="kpis" style="grid-template-columns:repeat(2,1fr)">
+        <div class="kpi"><b>${fmt(zuletzt(fett))} %</b><span>Körperfett</span></div>
+        <div class="kpi"><b>${signedFmt(veraenderung(fettAvg))}</b><span>Veränderung %</span></div>
+        <div class="kpi"><b>${fmt(zuletzt(muskel))} kg</b><span>Muskelmasse</span></div>
+        <div class="kpi"><b>${signedFmt(veraenderung(muskelAvg))}</b><span>Veränderung kg</span></div>
+      </div>
+    </div>` : ''}
 
     <div class="card">
       <div class="card-head"><h2>Blutdruck</h2><span class="sub">mmHg</span></div>

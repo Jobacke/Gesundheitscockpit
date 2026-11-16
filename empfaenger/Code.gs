@@ -363,6 +363,10 @@ function erinnerungTesten() {
 }
 
 function erinnerungPruefen() {
+  // Zuerst das Gewicht direkt von Garmin holen (falls eingerichtet) – Fehler dürfen die Erinnerung nicht stoppen
+  if (PropertiesService.getScriptProperties().getProperty('GARMIN_API_KEY')) {
+    try { garminAbgleich_(3); } catch (err) { log_('Garmin-Fehler: ' + err); }
+  }
   const jetzt = new Date();
   const datum = Utilities.formatDate(jetzt, TZ, 'yyyy-MM-dd');
   const minuten = Number(Utilities.formatDate(jetzt, TZ, 'H')) * 60 + Number(Utilities.formatDate(jetzt, TZ, 'm'));
@@ -408,4 +412,104 @@ function mailSenden_(datum, fehlt, art) {
     <p style="margin:18px 0 0;font-size:12px;color:#9aa5b1">Gewicht und Blutdruck kommen über Apple Health mit etwas Verzögerung an. Hast du gerade erst gemessen, ist diese Mail vermutlich schon erledigt.</p>
   </div>`;
   MailApp.sendEmail({ to: empfaenger_(), subject: betreff, body: text, htmlBody: html, name: 'Gesundheitscockpit' });
+}
+
+/* ---------- Garmin Connect (Personal API): Gewicht direkt von der Waage ---------- */
+// Einrichtung: in Garmin Connect (Web) → Einstellungen → Persönlicher API-Schlüssel → Schlüssel erstellen.
+// Den Schlüssel als Skripteigenschaft GARMIN_API_KEY eintragen, dann garminTesten ausführen.
+// Der Abgleich läuft danach automatisch mit der 15-Minuten-Zeitsteuerung der Erinnerungen.
+
+const GARMIN_BASE = 'https://personal.connectapi.garmin.com';
+const GARMIN_TOKEN_URL = GARMIN_BASE + '/personalapitoken-service/personal-api/personal-api-key/token';
+
+function garminTesten() {
+  const r = garminAbgleich_(14, true);
+  Logger.log('✓ Garmin erreichbar. Gewichtswerte der letzten 14 Tage: ' + r.tage.length);
+  r.tage.forEach((t) => Logger.log(`  ${t.datum}: ${t.gewicht} kg` + (t.koerperfett != null ? `, Körperfett ${t.koerperfett} %` : '') + (t.muskelmasse != null ? `, Muskelmasse ${t.muskelmasse} kg` : '')));
+  if (r.roh) Logger.log('Antwort von Garmin (Auszug): ' + r.roh);
+}
+
+function garminToken_() {
+  const cache = CacheService.getScriptCache();
+  const vorhanden = cache.get('GARMIN_TOKEN');
+  if (vorhanden) return vorhanden;
+  const key = PropertiesService.getScriptProperties().getProperty('GARMIN_API_KEY');
+  if (!key) throw new Error('Skripteigenschaft GARMIN_API_KEY fehlt');
+  const res = UrlFetchApp.fetch(GARMIN_TOKEN_URL, {
+    method: 'post', headers: { Authorization: 'ApiKey ' + key.trim(), Accept: '*/*' }, muteHttpExceptions: true,
+  });
+  if (res.getResponseCode() >= 300) throw new Error('Garmin-Token ' + res.getResponseCode() + ': ' + res.getContentText().slice(0, 300));
+  // Garmin liefert das Token als reinen Text (JWT) – zur Sicherheit auch JSON-Antworten verstehen
+  const roh = res.getContentText().trim();
+  let token = roh.replace(/^"|"$/g, '');
+  if (roh.charAt(0) === '{') {
+    const j = JSON.parse(roh);
+    token = j.access_token || j.accessToken || j.token;
+  }
+  if (!token || token.split('.').length < 2) throw new Error('Garmin-Token: unerwartete Antwort (Länge ' + roh.length + ')');
+  cache.put('GARMIN_TOKEN', token, 6 * 60 * 60);   // Token gilt 24 h, Cache hält höchstens 6 h
+  return token;
+}
+
+function garminGet_(pfad) {
+  const abruf = () => UrlFetchApp.fetch(GARMIN_BASE + pfad, {
+    headers: { Authorization: 'Bearer ' + garminToken_(), Accept: '*/*' }, muteHttpExceptions: true,
+  });
+  let res = abruf();
+  if (res.getResponseCode() === 401) { CacheService.getScriptCache().remove('GARMIN_TOKEN'); res = abruf(); }
+  if (res.getResponseCode() >= 300) throw new Error('Garmin ' + res.getResponseCode() + ': ' + res.getContentText().slice(0, 300));
+  return res.getContentText();
+}
+
+// Holt die Gewichtsmessungen der letzten `tage` Tage und schreibt je Tag die letzte Messung ins Cockpit
+function garminAbgleich_(tage, mitRoh) {
+  const heute = Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd');
+  const von = Utilities.formatDate(new Date(Date.now() - (tage - 1) * 86400000), TZ, 'yyyy-MM-dd');
+  const text = garminGet_(`/weight-service/weight/range/${von}/${heute}?includeAll=true`);
+  const j = JSON.parse(text);
+
+  // Messungen einsammeln (Garmin liefert Gewicht in Gramm, Massen ebenfalls in Gramm)
+  const messungen = [];
+  const summaries = j.dailyWeightSummaries || (Array.isArray(j) ? j : []);
+  summaries.forEach((s) => {
+    const liste = s.allWeightMetrics && s.allWeightMetrics.length ? s.allWeightMetrics : (s.latestWeight ? [s.latestWeight] : []);
+    liste.forEach((m) => messungen.push(Object.assign({ summaryDate: s.summaryDate }, m)));
+  });
+  (j.dateWeightList || []).forEach((m) => messungen.push(m));
+
+  const kg = (g) => (isNum_(g) ? round_(g > 1000 ? g / 1000 : g, 1) : null);
+  const proTag = {};
+  messungen.forEach((m) => {
+    const ts = m.timestampGMT || m.date || m.samplePk;
+    const datum = m.calendarDate || m.summaryDate || (isNum_(ts) ? Utilities.formatDate(new Date(ts), TZ, 'yyyy-MM-dd') : null);
+    const gewicht = kg(m.weight);
+    if (!datum || gewicht == null) return;
+    const zeit = isNum_(ts) ? ts : 0;
+    const neu = {
+      zeit: zeit, datum: datum, gewicht: gewicht,
+      koerperfett: isNum_(m.bodyFat) ? round_(m.bodyFat, 1) : null,
+      muskelmasse: kg(m.muscleMass), bmi: isNum_(m.bmi) ? round_(m.bmi, 1) : null,
+      uhrzeit: isNum_(ts) ? Utilities.formatDate(new Date(ts), TZ, 'HH:mm') : null,
+    };
+    const alt = proTag[datum];
+    // je Tag gilt die letzte Messung; fehlende Körperwerte werden aus anderen Messungen des Tages ergänzt
+    const [vorn, hinten] = !alt || zeit >= alt.zeit ? [neu, alt] : [alt, neu];
+    if (hinten) ['koerperfett', 'muskelmasse', 'bmi'].forEach((k) => { if (vorn[k] == null) vorn[k] = hinten[k]; });
+    proTag[datum] = vorn;
+  });
+
+  const ergebnis = Object.keys(proTag).sort().map((d) => proTag[d]);
+  ergebnis.forEach((t) => {
+    const h = { datum: t.datum, gewicht: t.gewicht, gewichtQuelle: 'Garmin', aktualisiert: new Date().toISOString() };
+    if (t.koerperfett != null) h.koerperfett = t.koerperfett;
+    if (t.muskelmasse != null) h.muskelmasse = t.muskelmasse;
+    if (t.bmi != null) h.bmi = t.bmi;
+    if (t.uhrzeit) h.gewichtZeit = t.uhrzeit;
+    patch_(`users/${UID}/health/${t.datum}`, h);
+    const vorhanden = getDoc_(`users/${UID}/tage/${t.datum}`) || {};
+    if (vorhanden.gewicht == null) patch_(`users/${UID}/tage/${t.datum}`, { datum: t.datum, gewicht: t.gewicht, gewichtQuelle: 'Garmin' });
+  });
+  PropertiesService.getScriptProperties().setProperty('LETZTER_GARMIN_ABGLEICH',
+    new Date().toISOString() + ' OK ' + ergebnis.map((t) => `${t.datum}=${t.gewicht}`).join(', '));
+  return { tage: ergebnis, roh: mitRoh ? text.slice(0, 600) : null };
 }

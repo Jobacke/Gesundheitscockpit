@@ -79,6 +79,11 @@ export function auswerten({ tage, health, dienste, training, settings, from, to,
     schlafN: keys.filter((k) => health[k]?.schlaf?.gesamt != null).length,
     ruhepuls: avg(keys.map((k) => health[k]?.ruhepuls ?? null)),
     hrv: avg(keys.map((k) => health[k]?.hrv ?? null)),
+    koerper: (() => {
+      const f = keys.map((k) => health[k]?.koerperfett ?? null).filter((v) => v != null);
+      const m = keys.map((k) => health[k]?.muskelmasse ?? null).filter((v) => v != null);
+      return { fett: avg(f), fettDelta: f.length > 1 ? f[f.length - 1] - f[0] : null, muskel: avg(m), muskelDelta: m.length > 1 ? m[m.length - 1] - m[0] : null };
+    })(),
     befinden: avg(keys.map((k) => tage[k]?.befinden ?? null)),
     ruecken: avg(keys.map((k) => tage[k]?.ruecken ?? null)),
     training: { einheiten, stunden, ctlStart: tFirst?.ctl ?? null, ctlEnde: tLast?.ctl ?? null, tsbEnde: tLast?.tsb ?? null, vorhanden: tKeys.length > 0 },
@@ -164,7 +169,7 @@ export async function berichtErstellen(store, settings, tageAnzahl, version) {
   } else { y += 14; pdf.text(M, y, 'Im Zeitraum keine Gewichtswerte.', { size: 9, color: C.muted }); y += 6; }
 
   /* Erholung & Belastung */
-  section('Erholung & Belastung', 'Apple Watch · Analytics (nur Radtraining) · Dienstplan');
+  section('Körper, Erholung & Belastung', 'Garmin-Waage · Apple Watch · Analytics (nur Radtraining) · Dienstplan');
   const dz = Object.entries(a.dienstZahl).map(([k, n]) => `${n}× ${DIENST_KURZ[k] || k}`).join(', ');
   const kv = [
     ['Schlaf Ø', a.schlaf != null ? `${hm(a.schlaf)} h (${a.schlafN} Nächte)` : '–'],
@@ -177,6 +182,8 @@ export async function berichtErstellen(store, settings, tageAnzahl, version) {
     ['Dienste', dz || 'keine'],
   ];
   if (a.ruecken != null) kv.splice(4, 0, ['Rücken Ø (0–10)', de(a.ruecken, 1)]);
+  if (a.koerper.muskel != null) kv.unshift(['Muskelmasse Ø', `${de(a.koerper.muskel, 1)} kg` + (a.koerper.muskelDelta != null ? ` (${signed(a.koerper.muskelDelta, 1)})` : '')]);
+  if (a.koerper.fett != null) kv.unshift(['Körperfett Ø', `${de(a.koerper.fett, 1)} %` + (a.koerper.fettDelta != null ? ` (${signed(a.koerper.fettDelta, 1)})` : '')]);
   const half = Math.ceil(kv.length / 2), colW = CW / 2;
   ensure(half * 15 + 10);
   y += 14;
@@ -255,7 +262,7 @@ export async function berichtErstellen(store, settings, tageAnzahl, version) {
   for (let i = 0; i < n; i++) {
     pdf.onPage(i);
     pdf.line(M, A4.h - 38, M + CW, A4.h - 38, { color: C.line });
-    pdf.text(M, A4.h - 26, `Gesundheitscockpit ${version} · selbst erfasste Werte (Heimmessung, Apple Health, Analytics) · kein ärztlicher Befund`, { size: 7, color: C.faint });
+    pdf.text(M, A4.h - 26, `Gesundheitscockpit ${version} · selbst erfasste Werte (Heimmessung, Garmin, Apple Health, Analytics) · kein ärztlicher Befund`, { size: 7, color: C.faint });
     pdf.text(M + CW, A4.h - 26, `Seite ${i + 1} von ${n}`, { size: 7, color: C.faint, align: 'right' });
   }
 
