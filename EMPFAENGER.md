@@ -49,3 +49,9 @@ Nach jeder Änderung an `Code.gs`: **Bereitstellen → Bereitstellungen verwalte
 - Das Cockpit errechnet aus den Messungen vor/nach einer Trainingseinheit (aus Analytics) den Flüssigkeitsverlust.
 - In Health Auto Export bei „Cockpit Tageswerte“ und „Cockpit Heute“ **kein Gewicht** mehr auswählen – Garmin ist die einzige Quelle.
 - Protokoll: Skripteigenschaft `LETZTER_GARMIN_ABGLEICH`. Schlüssel abgelaufen → neuen erstellen und `GARMIN_API_KEY` ersetzen.
+
+## Blutdruck-Messreihen (Omron X7 Smart AFib)
+
+- Das X7 misst dreimal und schreibt alle Einzelwerte nach Apple Health. Der Empfänger fasst Werte innerhalb von 10 Minuten (`BD_REIHE_MIN`) zu einer Messreihe zusammen und übernimmt den **Mittelwert** (`anzahl` = Zahl der Einzelwerte, in `health.bdMessungen` auch die Einzelwerte).
+- Automatisch übernommene Werte werden aktualisiert, von Hand eingetragene bleiben.
+- Änderung betrifft `doPost` → nach dem Einfügen **Bereitstellen → Bereitstellungen verwalten → Bearbeiten → Version: Neue Version** (Adresse bleibt gleich).

@@ -2,7 +2,7 @@ import { firebaseConfig } from './firebase-config.js';
 import { createStore } from './store.js';
 import { berichtErstellen } from './bericht.js';
 
-const VERSION = '1.6.0';
+const VERSION = '1.6.1';
 
 // Die fünf täglichen Aufgaben, aus denen sich die Konstanz berechnet
 const TASKS = [
@@ -556,6 +556,7 @@ function fillBpInfo(p, bp) {
   const parts = [];
   if (bp.zeit) parts.push(`gemessen um ${bp.zeit} Uhr`);
   if (bp.quelle) parts.push(`aus ${bp.quelle}`);
+  if (bp.anzahl > 1) parts.push(`Ø aus ${bp.anzahl} Messungen`);
   if (overLimit(bp)) parts.push('⚠︎ über deinem Grenzwert');
   el.textContent = parts.join(' · ');
   el.style.color = overLimit(bp) ? 'var(--warn)' : '';

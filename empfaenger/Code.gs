@@ -15,6 +15,7 @@ const PROJECT_ID = 'gesundheitscockpit';
 const UID = 'Kbhtx1MbgMTJDdtdGyfp3DSfIk03';  // Firebase → Authentication → Nutzer → „Nutzer-UID“
 const TZ = 'Europe/Berlin';
 const MORGEN_BIS_STUNDE = 12;                  // Messungen vor 12 Uhr = morgens, ab 12 Uhr = abends
+const BD_REIHE_MIN = 10;                       // Blutdruck-Einzelwerte innerhalb von 10 Minuten = eine Messreihe (Mittelwert)
 const KALENDER = 'Familie';                    // Kalender mit dem Dienstplan
 const DIENST_TAGE_ZURUECK = 10, DIENST_TAGE_VOR = 7;
 
@@ -94,7 +95,7 @@ function verarbeiten_(payload) {
           break;
         case 'blood_pressure':
           if (isNum_(e.systolic) && isNum_(e.diastolic)) {
-            t.bd.push({ sys: Math.round(e.systolic), dia: Math.round(e.diastolic), zeit: p.zeit, tagesmittel: p.zeit === '00:00' });
+            t.bd.push({ sys: Math.round(e.systolic), dia: Math.round(e.diastolic), zeit: p.zeit, ts: p.ts, tagesmittel: p.zeit === '00:00' });
           }
           break;
         case 'sleep_analysis':
@@ -134,9 +135,20 @@ function verarbeiten_(payload) {
         start: s.start ? s.start.zeit : null, ende: s.ende ? s.ende.zeit : null,
       };
     }
-    const einzel = t.bd.filter((b) => !b.tagesmittel).sort((a, b) => a.zeit.localeCompare(b.zeit));
+    // Einzelwerte, die innerhalb von BD_REIHE_MIN Minuten liegen, sind EINE Messreihe (z. B. Omron X7: 3 Messungen) → Mittelwert
+    const roh = t.bd.filter((b) => !b.tagesmittel).sort((a, b) => a.ts - b.ts);
+    const einzel = [];
+    roh.forEach((b) => {
+      const reihe = einzel[einzel.length - 1];
+      if (reihe && b.ts - reihe.ts0 <= BD_REIHE_MIN * 60000) reihe.werte.push(b);
+      else einzel.push({ ts0: b.ts, zeit: b.zeit, werte: [b] });
+    });
+    einzel.forEach((r) => {
+      r.sys = Math.round(r.werte.reduce((x, b) => x + b.sys, 0) / r.werte.length);
+      r.dia = Math.round(r.werte.reduce((x, b) => x + b.dia, 0) / r.werte.length);
+    });
     const mittel = t.bd.filter((b) => b.tagesmittel);
-    if (einzel.length) t.health.bdMessungen = einzel.map((b) => ({ sys: b.sys, dia: b.dia, zeit: b.zeit }));
+    if (einzel.length) t.health.bdMessungen = einzel.map((r) => ({ sys: r.sys, dia: r.dia, zeit: r.zeit, anzahl: r.werte.length, einzel: r.werte.map((b) => `${b.sys}/${b.dia}`).join(' · ') }));
     if (mittel.length) t.health.bdTagesmittel = { sys: mittel[0].sys, dia: mittel[0].dia };
 
     if (Object.keys(t.health).length) {
@@ -152,8 +164,11 @@ function verarbeiten_(payload) {
     if (t.health.gewicht != null || morgen || abend) {
       const vorhanden = getDoc_(`users/${UID}/tage/${datum}`) || {};
       if (t.health.gewicht != null && vorhanden.gewicht == null) { fill.gewicht = t.health.gewicht; fill.gewichtQuelle = 'Apple Health'; }
-      if (morgen && vorhanden.bdMorgen == null) fill.bdMorgen = { sys: morgen.sys, dia: morgen.dia, puls: null, zeit: morgen.zeit, quelle: 'Apple Health' };
-      if (abend && vorhanden.bdAbend == null) fill.bdAbend = { sys: abend.sys, dia: abend.dia, puls: null, zeit: abend.zeit, quelle: 'Apple Health' };
+      // von Hand eingetragene Werte bleiben; automatisch übernommene werden mit dem Mittelwert der Messreihe aktualisiert
+      const bdNeu = (alt, r) => (alt == null || (alt.quelle === 'Apple Health' && (alt.sys !== r.sys || alt.dia !== r.dia || alt.zeit !== r.zeit)));
+      const bdWert = (r) => ({ sys: r.sys, dia: r.dia, puls: null, zeit: r.zeit, quelle: 'Apple Health', anzahl: r.werte.length });
+      if (morgen && bdNeu(vorhanden.bdMorgen, morgen)) fill.bdMorgen = bdWert(morgen);
+      if (abend && bdNeu(vorhanden.bdAbend, abend)) fill.bdAbend = bdWert(abend);
       if (Object.keys(fill).length) {
         fill.datum = datum;
         patch_(`users/${UID}/tage/${datum}`, fill);
