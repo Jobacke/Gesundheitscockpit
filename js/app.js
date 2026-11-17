@@ -2,7 +2,7 @@ import { firebaseConfig } from './firebase-config.js';
 import { createStore } from './store.js';
 import { berichtErstellen } from './bericht.js';
 
-const VERSION = '1.7.0';
+const VERSION = '1.7.1';
 
 // Die fünf täglichen Aufgaben, aus denen sich die Konstanz berechnet
 const TASKS = [
@@ -88,11 +88,53 @@ function overLimit(bp) {
   return (grenzSys && bp.sys > grenzSys) || (grenzDia && bp.dia > grenzDia);
 }
 
+/* ---------- Update-Hinweis ---------- */
+// Fragt beim Öffnen, beim Zurückkehren und alle 10 Minuten die Version in js/app.js am Cache vorbei ab.
+// Ist online eine neuere Version, erscheint „Neue Version verfügbar – Neu laden“ (kein Cache-Leeren nötig).
+const vNum = (v) => String(v).split('.').map((n) => parseInt(n, 10) || 0);
+const isNewer = (a, b) => { const x = vNum(a), y = vNum(b); for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); } return false; };
+function startUpdateCheck() {
+  if (location.protocol === 'file:') return;
+  // ?v=… stammt vom „Neu laden“ – aus der Adresse wieder entfernen
+  if (/[?&]v=/.test(location.search)) history.replaceState(null, '', location.pathname + location.hash);
+  let last = 0;
+  const check = async () => {
+    if (Date.now() - last < 60000) return;
+    last = Date.now();
+    try {
+      const r = await fetch('js/app.js?t=' + Date.now(), { cache: 'no-store' });
+      if (!r.ok) return;
+      const m = (await r.text()).match(/const VERSION = '([^']+)'/);
+      if (m && isNewer(m[1], VERSION)) showUpdateBanner(m[1]);
+    } catch { /* offline – später erneut */ }
+  };
+  check();
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check(); });
+  window.addEventListener('focus', check);
+  setInterval(check, 10 * 60 * 1000);
+}
+function showUpdateBanner(neu) {
+  if ($('#update-banner')) return;
+  const b = document.createElement('div');
+  b.id = 'update-banner';
+  b.className = 'update-banner';
+  b.setAttribute('role', 'status');
+  b.innerHTML = `<span>Neue Version ${neu} verfügbar</span><button type="button">↻ Neu laden</button>`;
+  b.querySelector('button').onclick = async () => {
+    b.querySelector('button').disabled = true;
+    try { const regs = await navigator.serviceWorker?.getRegistrations?.(); for (const g of (regs || [])) await g.update(); } catch { /* egal */ }
+    try { const ks = await caches.keys(); await Promise.all(ks.map((k) => caches.delete(k))); } catch { /* egal */ }
+    location.replace(location.pathname + '?v=' + encodeURIComponent(neu) + location.hash);
+  };
+  document.body.appendChild(b);
+}
+
 /* ---------- Start ---------- */
 async function boot() {
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('sw.js').catch((e) => console.warn('SW', e));
   }
+  startUpdateCheck();
 
   try {
     state.store = await createStore(firebaseConfig);

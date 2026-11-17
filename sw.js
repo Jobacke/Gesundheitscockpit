@@ -1,12 +1,13 @@
 // Service Worker – App-Hülle offline verfügbar machen. Bei jeder Änderung CACHE hochzählen.
-const CACHE = 'gesundheitscockpit-v17';
+const CACHE = 'gesundheitscockpit-v18';
 const SHELL = [
   './', 'index.html', 'css/app.css', 'js/app.js', 'js/store.js', 'js/firebase-config.js', 'js/bericht.js', 'js/pdf.js',
   'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  // cache: 'reload' – frisch vom Server, nicht aus dem (bis zu 10 Min. alten) Browser-Speicher
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {
@@ -33,7 +34,8 @@ self.addEventListener('fetch', (e) => {
   // Eigene Dateien: zuerst Netz (immer aktuell), sonst Cache (offline)
   if (url.origin === self.location.origin) {
     e.respondWith(
-      fetch(e.request).then((res) => {
+      // cache: 'no-cache' – immer beim Server nachfragen (GitHub Pages hält Dateien sonst bis zu 10 Min.)
+      fetch(e.request.mode === 'navigate' ? e.request.url : e.request, { cache: 'no-cache' }).then((res) => {
         const copy = res.clone();
         caches.open(CACHE).then((c) => c.put(e.request, copy));
         return res;
