@@ -56,3 +56,10 @@ Nach jeder Änderung an `Code.gs`: **Bereitstellen → Bereitstellungen verwalte
 - Tageswert morgens = **erste** Messreihe vor 12 Uhr, abends = **erste** Messreihe ab 12 Uhr (jeweils vor der Tablette). Weitere Messreihen stehen in `health.bdMessungen` und im Cockpit unter dem Blutdruckfeld.
 - Automatisch übernommene Werte werden aktualisiert, von Hand eingetragene bleiben.
 - Änderung betrifft `doPost` → nach dem Einfügen **Bereitstellen → Bereitstellungen verwalten → Bearbeiten → Version: Neue Version** (Adresse bleibt gleich).
+
+## Tabletten aus Apple Health (ab v1.7.0)
+
+- Health Auto Export: eigene Automation **„Cockpit Tabletten“** (REST API, gleiche URL), Datentyp **Medikamente**, Format JSON, Datumsbereich **Heute**.
+- Jede Einnahme mit Status „Taken“ hakt die Morgen- (geplant vor 12 Uhr) bzw. Abendtablette ab; Quelle „Apple Health“ mit Uhrzeit.
+- Von Hand im Cockpit gesetzte/entfernte Häkchen haben immer Vorrang.
+- Mehrere Medikamente in Health? Skripteigenschaft `MEDIKAMENT` = Teil des Namens. Protokoll: `LETZTE_TABLETTEN` (zeigt auch die gefundenen Medikamentennamen).

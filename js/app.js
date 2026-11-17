@@ -2,7 +2,7 @@ import { firebaseConfig } from './firebase-config.js';
 import { createStore } from './store.js';
 import { berichtErstellen } from './bericht.js';
 
-const VERSION = '1.6.2';
+const VERSION = '1.7.0';
 
 // Die fünf täglichen Aufgaben, aus denen sich die Konstanz berechnet
 const TASKS = [
@@ -234,17 +234,19 @@ async function renderHeute() {
         </label>
         ${bpBlock('m', 'Blutdruck morgens')}
         ${toggleBtn('tabletteMorgen', 'Morgentablette genommen')}
+        <div class="bp-time" id="tabletteMorgen-info"></div>
       </div>
     </div>
 
     <div class="card" id="card-abend">
       <div class="card-head">
-        <div><h2>Abends</h2><div class="sub">${isToday && hour < 18 ? 'Erinnerung um 18:00 Uhr' : 'Blutdruck · Tablette'}</div></div>
+        <div><h2>Abends</h2><div class="sub">${isToday && hour < 18 ? 'Erinnerung um 18:30 Uhr' : 'Blutdruck · Tablette'}</div></div>
         <span class="badge" id="badge-abend">0/2</span>
       </div>
       <div class="row">
         ${bpBlock('a', 'Blutdruck abends')}
         ${toggleBtn('tabletteAbend', 'Abendtablette genommen')}
+        <div class="bp-time" id="tabletteAbend-info"></div>
       </div>
     </div>
 
@@ -281,6 +283,8 @@ async function renderHeute() {
   fillBpWeitere('a', health[d]?.bdMessungen, day.bdAbend);
   setToggle('tabletteMorgen', !!day.tabletteMorgen);
   setToggle('tabletteAbend', !!day.tabletteAbend);
+  tabletteInfo('tabletteMorgen', day);
+  tabletteInfo('tabletteAbend', day);
   setBefinden(day.befinden);
   setRuecken(day.ruecken);
   $('#notiz').value = day.notiz || '';
@@ -350,7 +354,9 @@ async function renderHeute() {
     $(`[data-toggle="${key}"]`).addEventListener('click', () => {
       const on = !day[key];
       setToggle(key, on);
-      save({ [key]: on }, on ? 'Tablette abgehakt' : null);
+      day[key + 'Quelle'] = 'Hand'; day[key + 'Zeit'] = null;
+      tabletteInfo(key, day);
+      save({ [key]: on, [key + 'Quelle']: 'Hand', [key + 'Zeit']: null }, on ? 'Tablette abgehakt' : null);
     });
   }
 
@@ -576,6 +582,12 @@ function fillBpWeitere(p, messungen, bp) {
 }
 function toggleBtn(key, label) {
   return `<button class="toggle" data-toggle="${key}" type="button"><span class="dot"></span><span>${label}</span></button>`;
+}
+function tabletteInfo(key, day) {
+  const el = $(`#${key}-info`);
+  if (!el) return;
+  el.textContent = day[key] && day[key + 'Quelle'] === 'Apple Health'
+    ? `aus Apple Health${day[key + 'Zeit'] ? ` · eingenommen um ${day[key + 'Zeit']} Uhr` : ''}` : '';
 }
 function setToggle(key, on) { $(`[data-toggle="${key}"]`).classList.toggle('on', on); }
 function setBefinden(v) { $$('#befinden button').forEach((b) => b.classList.toggle('on', Number(b.dataset.v) === v)); }

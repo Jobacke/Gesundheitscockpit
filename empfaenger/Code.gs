@@ -37,6 +37,14 @@ function doPost(e) {
       log_('OK Training ' + JSON.stringify(r));
       return text_('OK ' + JSON.stringify(r));
     }
+    // Aufbau jeder Lieferung kurz protokollieren (nur Schlüssel und Anzahl, keine Werte) – hilft bei der Fehlersuche
+    try {
+      const d = (payload && payload.data) || {};
+      const aufbau = Object.keys(d).map((k) => `${k}:${Array.isArray(d[k]) ? d[k].length : typeof d[k]}`).join(', ');
+      const med = medikamenteListe_(payload);
+      PropertiesService.getScriptProperties().setProperty('LETZTER_AUFBAU', new Date().toISOString() + ' data{' + aufbau + '} oben{' + Object.keys(payload || {}).join(', ') + '}' +
+        (med.length ? ' · erstes Medikament: ' + JSON.stringify(Object.assign({}, med[0], { codings: undefined })).slice(0, 300) : ''));
+    } catch (err) { /* nur Protokoll */ }
     const res = verarbeiten_(payload);
     try { res.dienste = dienstAktualisieren(); } catch (err) { res.dienste = 'Fehler: ' + err; }
     log_('OK ' + JSON.stringify(res));
@@ -189,7 +197,8 @@ function verarbeiten_(payload) {
       }
     }
   });
-  return { tage: Object.keys(tage).length, healthDokumente: geschrieben, ergaenzteTage: gefuellt };
+  const tabletten = tablettenVerarbeiten_(medikamenteListe_(payload));
+  return { tage: Object.keys(tage).length, healthDokumente: geschrieben, ergaenzteTage: gefuellt, tabletten: tabletten };
 }
 
 /* ---------- Training aus Analytics ---------- */
@@ -561,4 +570,60 @@ function garminAbgleich_(tage, mitRoh) {
   PropertiesService.getScriptProperties().setProperty('LETZTER_GARMIN_ABGLEICH',
     new Date().toISOString() + ' OK ' + ergebnis.map((t) => `${t.datum}=${t.gewicht}` + (t.messungen.length > 1 ? ` (${t.messungen.length} Messungen)` : '')).join(', '));
   return { tage: ergebnis, roh: mitRoh ? text.slice(0, 600) : null };
+}
+
+/* ---------- Tabletten aus Apple Health (Medikamente, über Health Auto Export) ---------- */
+// Jede als „Taken“ protokollierte Einnahme hakt im Cockpit die Morgen- bzw. Abendtablette ab.
+// Morgens/abends richtet sich nach der GEPLANTEN Zeit (vor 12 Uhr = morgens), sonst nach der Einnahmezeit.
+// Optional: Skripteigenschaft MEDIKAMENT = Teil des Namens (z. B. „Ramipril“), falls in Health mehrere Medikamente stehen.
+// Von Hand im Cockpit gesetzte oder entfernte Häkchen werden nie überschrieben.
+// Medikamenten-Einträge finden, egal ob unter data.medications, medications oder als Liste
+function medikamenteListe_(payload) {
+  if (!payload) return [];
+  const d = payload.data || {};
+  const kandidat = d.medications || d.medicationDoseEvents || payload.medications || payload.medicationDoseEvents || (Array.isArray(d) ? d : null) || [];
+  // manche Formate verschachteln: [{ name, data:[...] }]
+  const flach = [];
+  kandidat.forEach((m) => { if (m && Array.isArray(m.data) && !m.status) m.data.forEach((x) => flach.push(Object.assign({ displayText: m.name || m.displayText }, x))); else flach.push(m); });
+  return flach;
+}
+
+function tablettenVerarbeiten_(liste) {
+  if (!liste.length) return 0;
+  const filter = (PropertiesService.getScriptProperties().getProperty('MEDIKAMENT') || '').trim().toLowerCase();
+  const proTag = {};   // datum → { morgen: {...}, abend: {...}, alle: [...] }
+  const namen = {};
+  liste.forEach((m) => {
+    const name = String(m.nickname || m.displayText || 'Medikament');
+    namen[name] = true;
+    if (filter && name.toLowerCase().indexOf(filter) < 0) return;
+    const genommen = /^(taken|eingenommen|genommen)$/i.test(String(m.status || '').trim());
+    const ein = parseDate_(m.start);
+    const plan = parseDate_(m.scheduledDate) || ein;
+    if (!ein || !plan) return;
+    const t = (proTag[plan.datum] = proTag[plan.datum] || { alle: [] });
+    t.alle.push({ name: name, status: String(m.status || ''), geplant: plan.zeit, zeit: ein.zeit });
+    if (!genommen) return;
+    const halb = Number(plan.zeit.slice(0, 2)) < MORGEN_BIS_STUNDE ? 'morgen' : 'abend';
+    if (!t[halb] || ein.ts < t[halb].ts) t[halb] = { ts: ein.ts, zeit: ein.zeit, name: name };
+  });
+
+  let gesetzt = 0;
+  Object.keys(proTag).sort().forEach((datum) => {
+    const t = proTag[datum];
+    patch_(`users/${UID}/health/${datum}`, { datum: datum, medikamente: t.alle, aktualisiert: new Date().toISOString() });
+    if (!t.morgen && !t.abend) return;
+    const vorhanden = getDoc_(`users/${UID}/tage/${datum}`) || {};
+    const fill = {};
+    [['morgen', 'tabletteMorgen'], ['abend', 'tabletteAbend']].forEach(([halb, feld]) => {
+      const e = t[halb];
+      if (!e || vorhanden[feld + 'Quelle'] === 'Hand') return;           // Hand-Eintrag hat Vorrang
+      if (vorhanden[feld] === true && vorhanden[feld + 'Zeit'] === e.zeit) return;
+      fill[feld] = true; fill[feld + 'Quelle'] = 'Apple Health'; fill[feld + 'Zeit'] = e.zeit;
+    });
+    if (Object.keys(fill).length) { fill.datum = datum; patch_(`users/${UID}/tage/${datum}`, fill); gesetzt++; }
+  });
+  PropertiesService.getScriptProperties().setProperty('LETZTE_TABLETTEN',
+    new Date().toISOString() + ' Medikamente in Health: ' + Object.keys(namen).join(', ') + (filter ? ` (Filter: ${filter})` : '') + ` · ${gesetzt} Tag(e) abgehakt`);
+  return gesetzt;
 }

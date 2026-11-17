@@ -1,5 +1,5 @@
 // Service Worker – App-Hülle offline verfügbar machen. Bei jeder Änderung CACHE hochzählen.
-const CACHE = 'gesundheitscockpit-v16';
+const CACHE = 'gesundheitscockpit-v17';
 const SHELL = [
   './', 'index.html', 'css/app.css', 'js/app.js', 'js/store.js', 'js/firebase-config.js', 'js/bericht.js', 'js/pdf.js',
   'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
