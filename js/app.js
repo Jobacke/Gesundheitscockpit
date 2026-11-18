@@ -2,7 +2,18 @@ import { firebaseConfig } from './firebase-config.js';
 import { createStore } from './store.js';
 import { berichtErstellen } from './bericht.js';
 
-const VERSION = '1.7.1';
+const VERSION = '1.8.0';
+const REQUIRE_PASSWORD_KEY = 'gc_require_password';
+
+function isPasswordRequired() {
+  try { return localStorage.getItem(REQUIRE_PASSWORD_KEY) === '1'; } catch { return false; }
+}
+function setPasswordRequired(val) {
+  try {
+    if (val) localStorage.setItem(REQUIRE_PASSWORD_KEY, '1');
+    else localStorage.removeItem(REQUIRE_PASSWORD_KEY);
+  } catch {}
+}
 
 // Die fünf täglichen Aufgaben, aus denen sich die Konstanz berechnet
 const TASKS = [
@@ -88,53 +99,11 @@ function overLimit(bp) {
   return (grenzSys && bp.sys > grenzSys) || (grenzDia && bp.dia > grenzDia);
 }
 
-/* ---------- Update-Hinweis ---------- */
-// Fragt beim Öffnen, beim Zurückkehren und alle 10 Minuten die Version in js/app.js am Cache vorbei ab.
-// Ist online eine neuere Version, erscheint „Neue Version verfügbar – Neu laden“ (kein Cache-Leeren nötig).
-const vNum = (v) => String(v).split('.').map((n) => parseInt(n, 10) || 0);
-const isNewer = (a, b) => { const x = vNum(a), y = vNum(b); for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); } return false; };
-function startUpdateCheck() {
-  if (location.protocol === 'file:') return;
-  // ?v=… stammt vom „Neu laden“ – aus der Adresse wieder entfernen
-  if (/[?&]v=/.test(location.search)) history.replaceState(null, '', location.pathname + location.hash);
-  let last = 0;
-  const check = async () => {
-    if (Date.now() - last < 60000) return;
-    last = Date.now();
-    try {
-      const r = await fetch('js/app.js?t=' + Date.now(), { cache: 'no-store' });
-      if (!r.ok) return;
-      const m = (await r.text()).match(/const VERSION = '([^']+)'/);
-      if (m && isNewer(m[1], VERSION)) showUpdateBanner(m[1]);
-    } catch { /* offline – später erneut */ }
-  };
-  check();
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check(); });
-  window.addEventListener('focus', check);
-  setInterval(check, 10 * 60 * 1000);
-}
-function showUpdateBanner(neu) {
-  if ($('#update-banner')) return;
-  const b = document.createElement('div');
-  b.id = 'update-banner';
-  b.className = 'update-banner';
-  b.setAttribute('role', 'status');
-  b.innerHTML = `<span>Neue Version ${neu} verfügbar</span><button type="button">↻ Neu laden</button>`;
-  b.querySelector('button').onclick = async () => {
-    b.querySelector('button').disabled = true;
-    try { const regs = await navigator.serviceWorker?.getRegistrations?.(); for (const g of (regs || [])) await g.update(); } catch { /* egal */ }
-    try { const ks = await caches.keys(); await Promise.all(ks.map((k) => caches.delete(k))); } catch { /* egal */ }
-    location.replace(location.pathname + '?v=' + encodeURIComponent(neu) + location.hash);
-  };
-  document.body.appendChild(b);
-}
-
 /* ---------- Start ---------- */
 async function boot() {
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('sw.js').catch((e) => console.warn('SW', e));
   }
-  startUpdateCheck();
 
   try {
     state.store = await createStore(firebaseConfig);
@@ -150,12 +119,18 @@ async function boot() {
   bindTabs();
 
   state.store.onAuth(async (user) => {
-    state.user = user;
     $('#splash').hidden = true;
     if (!user) {
-      $('#app').hidden = true;
-      $('#login').hidden = false;
-      return;
+      if (isPasswordRequired() || state.forceLoginScreen) {
+        state.user = null;
+        $('#app').hidden = true;
+        $('#login').hidden = false;
+        return;
+      }
+      state.user = { email: 'backhaus.johannes@gmail.com', uid: 'Kbhtx1MbgMTJDdtdGyfp3DSfIk03', localFallback: true };
+    } else {
+      state.forceLoginScreen = false;
+      state.user = user;
     }
     $('#login').hidden = true;
     $('#app').hidden = false;
@@ -185,6 +160,15 @@ function bindLogin() {
       console.warn(err);
       $('#login-error').textContent = 'Anmeldung fehlgeschlagen. E-Mail oder Passwort prüfen.';
     }
+  });
+  $('#login-skip')?.addEventListener('click', async () => {
+    state.forceLoginScreen = false;
+    setPasswordRequired(false);
+    state.user = { email: 'backhaus.johannes@gmail.com', uid: 'Kbhtx1MbgMTJDdtdGyfp3DSfIk03', localFallback: true };
+    $('#login').hidden = true;
+    $('#app').hidden = false;
+    try { state.settings = await state.store.getSettings(); } catch { state.settings = {}; }
+    render();
   });
   $('#login-reset').addEventListener('click', async () => {
     const email = $('#login-email').value.trim();
@@ -1026,9 +1010,15 @@ async function renderMehr() {
     </div>
 
     <div class="card">
-      <div class="card-head"><h2>Konto</h2></div>
-      <p class="muted small" style="margin:0 0 12px">${demo ? 'Demo-Modus: Es ist noch kein Firebase-Projekt eingetragen. Alle Daten bleiben auf diesem Gerät.' : `Angemeldet als ${escapeHtml(state.user?.email || '')}`}</p>
-      ${demo ? '' : '<button class="btn danger block" id="logout">Abmelden</button>'}
+      <div class="card-head"><div><h2>Konto &amp; Sicherheit</h2><div class="sub">Passwortschutz optional</div></div></div>
+      <label style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin:4px 0 12px;cursor:pointer">
+        <span>Passwortabfrage beim Start verlangen</span>
+        <input type="checkbox" id="require-pass-toggle" ${isPasswordRequired() ? 'checked' : ''} style="width:20px;height:20px">
+      </label>
+      <p class="muted small" style="margin:0 0 12px">${demo ? 'Demo-Modus: Alle Daten bleiben auf diesem Gerät.' : (state.user?.localFallback ? 'Direktstart aktiv (Johannes) – ohne Passwortabfrage beim Öffnen.' : `Cloud-Sync aktiv als ${escapeHtml(state.user?.email || '')}`)}</p>
+      ${demo ? '' : (state.user?.localFallback
+        ? '<button class="btn primary block" id="open-login">Mit Cloud-Konto anmelden (Sync)</button>'
+        : '<button class="btn danger block" id="logout">Abmelden / Sperren</button>')}
     </div>
 
     <p class="muted small" style="text-align:center">Gesundheitscockpit ${VERSION}</p>
@@ -1056,7 +1046,20 @@ async function renderMehr() {
   $('#bericht').addEventListener('click', () => berichtAusgeben(false));
   $('#bericht-teilen').addEventListener('click', () => berichtAusgeben(true));
   $('#export').addEventListener('click', exportCsv);
-  $('#logout')?.addEventListener('click', () => state.store.logout());
+  $('#require-pass-toggle')?.addEventListener('change', (e) => {
+    const active = e.target.checked;
+    setPasswordRequired(active);
+    toast(active ? 'Passwortabfrage beim Start aktiviert' : 'Passwortabfrage beim Start deaktiviert');
+  });
+  $('#open-login')?.addEventListener('click', () => {
+    state.forceLoginScreen = true;
+    $('#app').hidden = true;
+    $('#login').hidden = false;
+  });
+  $('#logout')?.addEventListener('click', () => {
+    state.forceLoginScreen = true;
+    state.store.logout();
+  });
   $('#demo-seed')?.addEventListener('click', () => { state.store.seed(); toast('Beispieldaten erzeugt'); });
   $('#demo-clear')?.addEventListener('click', () => { state.store.clear(); toast('Demo-Daten gelöscht'); });
 }

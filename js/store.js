@@ -38,12 +38,17 @@ async function createFirebaseStore(config) {
     db = getFirestore(app);
   }
 
-  const uid = () => {
-    if (!auth.currentUser) throw new Error('Nicht angemeldet');
-    return auth.currentUser.uid;
-  };
+  const localFallback = createDemoStore();
+  const hasAuth = () => Boolean(auth.currentUser);
+  const uid = () => (auth.currentUser ? auth.currentUser.uid : 'Kbhtx1MbgMTJDdtdGyfp3DSfIk03');
   const dayRef = (d) => doc(db, 'users', uid(), 'tage', d);
   async function rangeOf(name, from, to) {
+    if (!hasAuth()) {
+      if (name === 'health') return localFallback.getHealthRange(from, to);
+      if (name === 'dienste') return localFallback.getDiensteRange(from, to);
+      if (name === 'training') return localFallback.getTrainingRange(from, to);
+      return {};
+    }
     const q = query(collection(db, 'users', uid(), name), where('datum', '>=', from), where('datum', '<=', to));
     const snap = await getDocs(q);
     const out = {};
@@ -60,28 +65,42 @@ async function createFirebaseStore(config) {
     resetPassword: (email) => sendPasswordResetEmail(auth, email),
 
     async getDay(d) {
+      if (!hasAuth()) return localFallback.getDay(d);
       const s = await getDoc(dayRef(d));
-      return s.exists() ? s.data() : {};
+      const data = s.exists() ? s.data() : {};
+      if (Object.keys(data).length) await localFallback.saveDay(d, data);
+      return data;
     },
     // Schreibt sofort in den lokalen Cache; die Synchronisation läuft im Hintergrund.
     saveDay(d, patch) {
+      localFallback.saveDay(d, patch);
+      if (!hasAuth()) return Promise.resolve();
       return setDoc(dayRef(d), { ...patch, datum: d, aktualisiert: serverTimestamp() }, { merge: true });
     },
     async getRange(from, to) {
+      if (!hasAuth()) return localFallback.getRange(from, to);
       const q = query(collection(db, 'users', uid(), 'tage'), where('datum', '>=', from), where('datum', '<=', to));
       const snap = await getDocs(q);
       const out = {};
-      snap.forEach((s) => { out[s.id] = s.data(); });
+      snap.forEach((s) => {
+        out[s.id] = s.data();
+        localFallback.saveDay(s.id, s.data());
+      });
       return out;
     },
     async getHealthRange(from, to) { return rangeOf('health', from, to); },
     async getDiensteRange(from, to) { return rangeOf('dienste', from, to); },
     async getTrainingRange(from, to) { return rangeOf('training', from, to); },
     async getSettings() {
+      if (!hasAuth()) return localFallback.getSettings();
       const s = await getDoc(userRef());
-      return (s.exists() && s.data().einstellungen) || {};
+      const cfg = (s.exists() && s.data().einstellungen) || {};
+      await localFallback.saveSettings(cfg);
+      return cfg;
     },
     saveSettings(settings) {
+      localFallback.saveSettings(settings);
+      if (!hasAuth()) return Promise.resolve();
       return setDoc(userRef(), { einstellungen: settings }, { merge: true });
     },
   };
