@@ -2,8 +2,38 @@ import { firebaseConfig } from './firebase-config.js';
 import { createStore } from './store.js';
 import { berichtErstellen } from './bericht.js';
 
-const VERSION = '1.8.2';
+const VERSION = '1.8.3';
 const REQUIRE_PASSWORD_KEY = 'gc_require_password';
+const AUTO_AUTH_KEY = 'gc_auto_auth_v1';
+
+function saveAutoAuth(email, pass) {
+  try {
+    const raw = btoa(unescape(encodeURIComponent(JSON.stringify({ email, pass }))));
+    localStorage.setItem(AUTO_AUTH_KEY, raw);
+    if (window.parent && window.parent !== window) {
+      window.parent.postMessage({ type: 'board-storage-set', key: AUTO_AUTH_KEY, value: raw }, '*');
+    }
+  } catch {}
+}
+
+function loadAutoAuth() {
+  try {
+    const raw = localStorage.getItem(AUTO_AUTH_KEY);
+    if (!raw) return null;
+    return JSON.parse(decodeURIComponent(escape(atob(raw))));
+  } catch {
+    return null;
+  }
+}
+
+function clearAutoAuth() {
+  try {
+    localStorage.removeItem(AUTO_AUTH_KEY);
+    if (window.parent && window.parent !== window) {
+      window.parent.postMessage({ type: 'board-storage-remove', key: AUTO_AUTH_KEY }, '*');
+    }
+  } catch {}
+}
 
 function isPasswordRequired() {
   try { return localStorage.getItem(REQUIRE_PASSWORD_KEY) === '1'; } catch { return false; }
@@ -157,10 +187,41 @@ async function boot() {
   bindLogin();
   bindTabs();
 
+  // Falls die App im Board-Cockpit (iframe) läuft, gespeicherte Sitzung vom Board anfordern
+  if (window.parent && window.parent !== window) {
+    window.addEventListener('message', async (ev) => {
+      if (ev.data && ev.data.type === 'board-storage-value' && ev.data.key === AUTO_AUTH_KEY && ev.data.value) {
+        try {
+          localStorage.setItem(AUTO_AUTH_KEY, ev.data.value);
+          if (!state.user && !isPasswordRequired() && !state.forceLoginScreen) {
+            const creds = loadAutoAuth();
+            if (creds && creds.email && creds.pass) {
+              await state.store.login(creds.email, creds.pass);
+            }
+          }
+        } catch {}
+      }
+    });
+    window.parent.postMessage({ type: 'board-storage-get', key: AUTO_AUTH_KEY }, '*');
+  }
+
+  let autoLoginAttempted = false;
   state.store.onAuth(async (user) => {
+    if (!user && !autoLoginAttempted && !isPasswordRequired() && !state.forceLoginScreen) {
+      autoLoginAttempted = true;
+      const creds = loadAutoAuth();
+      if (creds && creds.email && creds.pass) {
+        try {
+          await state.store.login(creds.email, creds.pass);
+          return;
+        } catch (e) {
+          console.warn('Auto-Login fehlgeschlagen:', e);
+        }
+      }
+    }
     $('#splash').hidden = true;
     // Ohne echte Firebase-Sitzung blockiert Firestore den Abruf der Health-Auto-Export-Daten.
-    // Daher bei fehlender Sitzung einmalig anmelden (bleibt danach im Browser dauerhaft gespeichert!).
+    // Daher bei fehlender Sitzung einmalig anmelden (wird danach für den automatischen Direktstart gespeichert!).
     if (!user || state.forceLoginScreen || (isPasswordRequired() && !sessionStorage.getItem('gc_session_unlocked'))) {
       state.user = user;
       $('#app').hidden = true;
@@ -192,10 +253,13 @@ function bindLogin() {
   $('#login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     $('#login-error').textContent = '';
+    const email = $('#login-email').value.trim();
+    const pass = $('#login-pass').value;
     try {
       state.forceLoginScreen = false;
       sessionStorage.setItem('gc_session_unlocked', '1');
-      await state.store.login($('#login-email').value.trim(), $('#login-pass').value);
+      await state.store.login(email, pass);
+      saveAutoAuth(email, pass);
     } catch (err) {
       console.warn(err);
       $('#login-error').textContent = 'Anmeldung fehlgeschlagen. E-Mail oder Passwort prüfen.';
@@ -1098,6 +1162,7 @@ async function renderMehr() {
   });
   $('#logout')?.addEventListener('click', () => {
     state.forceLoginScreen = true;
+    sessionStorage.removeItem('gc_session_unlocked');
     state.store.logout();
   });
   $('#demo-seed')?.addEventListener('click', () => { state.store.seed(); toast('Beispieldaten erzeugt'); });
