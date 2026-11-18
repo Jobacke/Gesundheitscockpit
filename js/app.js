@@ -2,7 +2,7 @@ import { firebaseConfig } from './firebase-config.js';
 import { createStore } from './store.js';
 import { berichtErstellen } from './bericht.js';
 
-const VERSION = '1.8.1';
+const VERSION = '1.8.2';
 const REQUIRE_PASSWORD_KEY = 'gc_require_password';
 
 function isPasswordRequired() {
@@ -166,7 +166,7 @@ async function boot() {
       $('#app').hidden = true;
       $('#login').hidden = false;
       const emailEl = $('#login-email');
-      if (emailEl && !emailEl.value) emailEl.value = 'backhaus.johannes@gmail.com';
+      if (emailEl && !emailEl.value) emailEl.value = 'johannes@vjbackhaus.com';
       return;
     }
     state.user = user;
