@@ -2,7 +2,7 @@ import { firebaseConfig } from './firebase-config.js';
 import { createStore } from './store.js';
 import { berichtErstellen } from './bericht.js';
 
-const VERSION = '1.8.0';
+const VERSION = '1.8.1';
 const REQUIRE_PASSWORD_KEY = 'gc_require_password';
 
 function isPasswordRequired() {
@@ -159,18 +159,17 @@ async function boot() {
 
   state.store.onAuth(async (user) => {
     $('#splash').hidden = true;
-    if (!user) {
-      if (isPasswordRequired() || state.forceLoginScreen) {
-        state.user = null;
-        $('#app').hidden = true;
-        $('#login').hidden = false;
-        return;
-      }
-      state.user = { email: 'backhaus.johannes@gmail.com', uid: 'Kbhtx1MbgMTJDdtdGyfp3DSfIk03', localFallback: true };
-    } else {
-      state.forceLoginScreen = false;
+    // Ohne echte Firebase-Sitzung blockiert Firestore den Abruf der Health-Auto-Export-Daten.
+    // Daher bei fehlender Sitzung einmalig anmelden (bleibt danach im Browser dauerhaft gespeichert!).
+    if (!user || state.forceLoginScreen || (isPasswordRequired() && !sessionStorage.getItem('gc_session_unlocked'))) {
       state.user = user;
+      $('#app').hidden = true;
+      $('#login').hidden = false;
+      const emailEl = $('#login-email');
+      if (emailEl && !emailEl.value) emailEl.value = 'backhaus.johannes@gmail.com';
+      return;
     }
+    state.user = user;
     $('#login').hidden = true;
     $('#app').hidden = false;
     try { state.settings = await state.store.getSettings(); } catch { state.settings = {}; }
@@ -194,6 +193,8 @@ function bindLogin() {
     e.preventDefault();
     $('#login-error').textContent = '';
     try {
+      state.forceLoginScreen = false;
+      sessionStorage.setItem('gc_session_unlocked', '1');
       await state.store.login($('#login-email').value.trim(), $('#login-pass').value);
     } catch (err) {
       console.warn(err);
