@@ -2,9 +2,20 @@ import { firebaseConfig } from './firebase-config.js';
 import { createStore } from './store.js';
 import { berichtErstellen } from './bericht.js';
 
-const VERSION = '1.8.3';
+const VERSION = '1.8.4';
 const REQUIRE_PASSWORD_KEY = 'gc_require_password';
 const AUTO_AUTH_KEY = 'gc_auto_auth_v1';
+
+// Falls das Board die gespeicherte Anmeldung direkt im URL-Hash (#board_gc_auth=...) übergibt, sofort synchron sichern
+try {
+  if (typeof window !== 'undefined' && window.location.hash.includes('board_gc_auth=')) {
+    const m = window.location.hash.match(/board_gc_auth=([^&]+)/);
+    if (m && m[1]) {
+      localStorage.setItem(AUTO_AUTH_KEY, decodeURIComponent(m[1]));
+      history.replaceState(null, '', location.pathname + location.search);
+    }
+  }
+} catch {}
 
 function saveAutoAuth(email, pass) {
   try {
