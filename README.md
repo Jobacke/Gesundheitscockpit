@@ -4,7 +4,7 @@ Eigene Web-App (PWA) für die tägliche Gesundheitsroutine: Wiegen, Blutdruck mo
 Teil der App-Familie (Anthrazit-Metallic, Material **Smaragd**).
 
 **Stufe 1 (diese Version):** Morgen- und Abend-Check, Konstanz, Verlauf, CSV-Export, Erinnerungen über iOS-Kurzbefehle.
-**Als Nächstes (Stufe 1b):** Schlaf (Apple-Health-Export), Training (Analytics), Dienste (Kalender „Familie“) und die tägliche Ampel.
+**Als Nächstes (Stufe 1b):** Schlaf (Apple-Health-Export), Training (Analytics), Dienste (Kalender „Veronika und Johannes“) und die tägliche Ampel.
 
 ---
 

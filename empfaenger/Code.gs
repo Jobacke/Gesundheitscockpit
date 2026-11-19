@@ -3,7 +3,7 @@
  * ---------------------------------------------------------------
  * Nimmt die JSON-Daten von Health Auto Export entgegen und schreibt sie in Firestore:
  *   users/{UID}/health/{JJJJ-MM-TT}  → Schlaf, Ruhepuls, HRV, Gewicht, Blutdruck-Messungen
- *   users/{UID}/dienste/{JJJJ-MM-TT} → Dienste aus dem Kalender „Familie“ (Nacht/Spät/Tag/Früh)
+ *   users/{UID}/dienste/{JJJJ-MM-TT} → Dienste aus dem Kalender „Veronika und Johannes“ (Nacht/Spät/Tag/Früh)
  *   users/{UID}/training/{JJJJ-MM-TT}→ Trainingslast, CTL/ATL/TSB und Aktivitäten (von Analytics gesendet)
  *   users/{UID}/tage/{JJJJ-MM-TT}    → füllt Gewicht und Blutdruck morgens/abends,
  *                                      aber NUR, wenn dort noch nichts von Hand eingetragen ist.
@@ -16,7 +16,8 @@ const UID = 'Kbhtx1MbgMTJDdtdGyfp3DSfIk03';  // Firebase → Authentication → 
 const TZ = 'Europe/Berlin';
 const MORGEN_BIS_STUNDE = 12;                  // Messungen vor 12 Uhr = morgens, ab 12 Uhr = abends
 const BD_REIHE_MIN = 10;                       // Blutdruck-Einzelwerte innerhalb von 10 Minuten = eine Messreihe (Mittelwert)
-const KALENDER = 'Familie';                    // Kalender mit dem Dienstplan
+const KALENDER = 'Veronika und Johannes';      // Kalender mit dem Dienstplan
+const KALENDER_ID = 'family00451237827764880286@group.calendar.google.com'; // stabile Google-Kalender-ID (bleibt auch bei Umbenennung gleich)
 const DIENST_TAGE_ZURUECK = 10, DIENST_TAGE_VOR = 7;
 
 const BASE = `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
@@ -231,7 +232,7 @@ function num_(x) { return typeof x === 'number' && isFinite(x) ? x : null; }
 
 // Liest den Kalender und schreibt je Tag users/{UID}/dienste/{Datum} = { datum, liste: [...] }
 function dienstAktualisieren() {
-  const cal = CalendarApp.getCalendarsByName(KALENDER)[0];
+  const cal = (KALENDER_ID ? CalendarApp.getCalendarById(KALENDER_ID) : null) || CalendarApp.getCalendarsByName(KALENDER)[0];
   if (!cal) throw new Error(`Kalender „${KALENDER}“ nicht gefunden`);
   const heute = new Date();
   const von = new Date(heute.getTime() - DIENST_TAGE_ZURUECK * 864e5);
