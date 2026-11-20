@@ -2,7 +2,7 @@ import { firebaseConfig } from './firebase-config.js';
 import { createStore } from './store.js';
 import { berichtErstellen } from './bericht.js';
 
-const VERSION = '1.8.5';
+const VERSION = '1.8.6';
 const REQUIRE_PASSWORD_KEY = 'gc_require_password';
 const AUTO_AUTH_KEY = 'gc_auto_auth_v1';
 

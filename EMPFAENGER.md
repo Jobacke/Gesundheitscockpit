@@ -63,3 +63,21 @@ Nach jeder Änderung an `Code.gs`: **Bereitstellen → Bereitstellungen verwalte
 - Jede Einnahme mit Status „Taken“ hakt die Morgen- (geplant vor 12 Uhr) bzw. Abendtablette ab; Quelle „Apple Health“ mit Uhrzeit.
 - Von Hand im Cockpit gesetzte/entfernte Häkchen haben immer Vorrang.
 - Mehrere Medikamente in Health? Skripteigenschaft `MEDIKAMENT` = Teil des Namens. Protokoll: `LETZTE_TABLETTEN` (zeigt auch die gefundenen Medikamentennamen).
+
+## Wirklicher Auto-Export ohne manuelles Öffnen & ohne Homescreen-Icons (ab v1.8.6)
+
+### 1. Empfänger-Speedup (~10× schneller, verhindert iOS-Hintergrund-Timeouts)
+- `Code.gs` ruft `dienstAktualisieren()` nicht mehr bei jedem Webhook-POST synchron auf (läuft über den eigenen 3-Stunden-Trigger) und schreibt alle Firestore-Dokumente parallel via `UrlFetchApp.fetchAll(...)`.
+- Nach dem Einfügen der neuen `Code.gs` einmal in Apps Script: **Bereitstellen → Bereitstellungen verwalten → Bearbeiten → Version: Neue Version → Bereitstellen**.
+
+### 2. Health Auto Export & iOS-Einstellungen prüfen
+- **iOS Einstellungen → Allgemein → Hintergrundaktualisierung → Health Auto Export: EIN** (Stromsparmodus **AUS**).
+- In den Automationen von Health Auto Export: **Sync-Intervall** auf **15 Min.** stellen.
+
+### 3. Unsichtbarer iOS-Autopilot (0 Homescreen-Icons, 0 manuelle Klicks)
+Apple verschlüsselt HealthKit bei gesperrtem iPhone. Mit Apples eingebauter **Kurzbefehle-App → Reiter „Automation“** (erscheint **nicht** auf dem Homescreen) läuft der Export lautlos genau dann, wenn das iPhone ohnehin entsperrt ist:
+1. In **Kurzbefehle → Kurzbefehle** einen einzigen Hilfs-Kurzbefehl **`Health Sync`** anlegen (nicht zum Homescreen hinzufügen) mit den Aktionen **Health Auto Export → Automation ausführen** für `Cockpit Heute`, `Cockpit Blutdruck`, `Cockpit Tabletten`, `Cockpit Tageswerte`.
+2. In **Kurzbefehle → Automation (+)** diese 3 unsichtbaren Trigger mit **`Sofort ausführen`** (Bestätigung AUS, Benachrichtigung AUS) auf `Health Sync` legen:
+   - **App → `OMRON connect` → Wird geschlossen** *(Blutdruck landet sofort nach dem Messen im Cockpit)*
+   - **App → `Health` → Wird geschlossen** *(Tabletten landen sofort nach dem Abhaken im Cockpit)*
+   - **Ladegerät → Wird getrennt** *(und/oder **Wecker → Wird gestoppt** – Schlaf, Ruhepuls & HRV landen morgens automatisch im Cockpit)*

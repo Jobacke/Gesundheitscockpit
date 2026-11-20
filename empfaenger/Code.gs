@@ -47,7 +47,8 @@ function doPost(e) {
         (med.length ? ' · erstes Medikament: ' + JSON.stringify(Object.assign({}, med[0], { codings: undefined })).slice(0, 300) : ''));
     } catch (err) { /* nur Protokoll */ }
     const res = verarbeiten_(payload);
-    try { res.dienste = dienstAktualisieren(); } catch (err) { res.dienste = 'Fehler: ' + err; }
+    // Hinweis: dienstAktualisieren() läuft über den eigenen 3-Stunden-Trigger und NICHT mehr synchron in doPost(),
+    // damit Health Auto Export im iOS-Hintergrund (enges Timeout!) in ~1 Sekunde statt ~15 Sekunden fertig wird.
     log_('OK ' + JSON.stringify(res));
     return text_('OK ' + JSON.stringify(res));
   } catch (err) {
@@ -139,6 +140,10 @@ function verarbeiten_(payload) {
   });
 
   let geschrieben = 0, gefuellt = 0;
+  const jetzt = new Date().toISOString();
+  const healthPatches = [];
+  const tageKandidaten = [];
+
   Object.keys(tage).sort().forEach((datum) => {
     const t = tage[datum];
     if (t.hrv) t.health.hrv = Math.round(t.hrv.reduce((a, b) => a + b, 0) / t.hrv.length);
@@ -173,31 +178,43 @@ function verarbeiten_(payload) {
     if (mittel.length) t.health.bdTagesmittel = { sys: mittel[0].sys, dia: mittel[0].dia };
 
     if (Object.keys(t.health).length) {
-      patch_(`users/${UID}/health/${datum}`, Object.assign({ datum: datum, aktualisiert: new Date().toISOString() }, t.health));
+      healthPatches.push({ path: `users/${UID}/health/${datum}`, obj: Object.assign({ datum: datum, aktualisiert: jetzt }, t.health) });
       geschrieben++;
     }
 
     // Tagesdokument nur dort ergänzen, wo noch nichts eingetragen ist
-    const fill = {};
     const morgen = einzel.filter((b) => Number(b.zeit.slice(0, 2)) < MORGEN_BIS_STUNDE)[0];   // erste Messreihe des Morgens
     const abendListe = einzel.filter((b) => Number(b.zeit.slice(0, 2)) >= MORGEN_BIS_STUNDE);
     const abend = abendListe[0];   // erste Messreihe ab 12 Uhr (vor der Abendtablette); weitere bleiben in bdMessungen
     if (t.health.gewicht != null || morgen || abend) {
-      const vorhanden = getDoc_(`users/${UID}/tage/${datum}`) || {};
-      if (t.health.gewicht != null && vorhanden.gewicht == null) { fill.gewicht = t.health.gewicht; fill.gewichtQuelle = 'Apple Health'; }
-      // von Hand eingetragene Werte bleiben; automatisch übernommene werden mit dem Mittelwert der Messreihe aktualisiert
-      const bdNeu = (alt, r) => (alt == null || (alt.quelle === 'Apple Health' &&
-        (alt.sys !== r.sys || alt.dia !== r.dia || alt.zeit !== r.zeit || alt.anzahl !== r.werte.length || (r.puls != null && alt.puls !== r.puls))));
-      const bdWert = (r) => ({ sys: r.sys, dia: r.dia, puls: r.puls, zeit: r.zeit, quelle: 'Apple Health', anzahl: r.werte.length });
-      if (morgen && bdNeu(vorhanden.bdMorgen, morgen)) fill.bdMorgen = bdWert(morgen);
-      if (abend && bdNeu(vorhanden.bdAbend, abend)) fill.bdAbend = bdWert(abend);
-      if (Object.keys(fill).length) {
-        fill.datum = datum;
-        patch_(`users/${UID}/tage/${datum}`, fill);
-        gefuellt++;
-      }
+      tageKandidaten.push({ datum: datum, gewicht: t.health.gewicht, morgen: morgen, abend: abend });
     }
   });
+
+  // Alle Health-Dokumente parallel in einem Schwung schreiben (ca. 10x schneller für iOS-Hintergrund-Sync!)
+  patchAll_(healthPatches);
+
+  if (tageKandidaten.length) {
+    const vorhandene = getDocsAll_(tageKandidaten.map((k) => `users/${UID}/tage/${k.datum}`));
+    const tagePatches = [];
+    const bdNeu = (alt, r) => (alt == null || (alt.quelle === 'Apple Health' &&
+      (alt.sys !== r.sys || alt.dia !== r.dia || alt.zeit !== r.zeit || alt.anzahl !== r.werte.length || (r.puls != null && alt.puls !== r.puls))));
+    const bdWert = (r) => ({ sys: r.sys, dia: r.dia, puls: r.puls, zeit: r.zeit, quelle: 'Apple Health', anzahl: r.werte.length });
+
+    tageKandidaten.forEach((k, idx) => {
+      const vorhanden = vorhandene[idx] || {};
+      const fill = {};
+      if (k.gewicht != null && vorhanden.gewicht == null) { fill.gewicht = k.gewicht; fill.gewichtQuelle = 'Apple Health'; }
+      if (k.morgen && bdNeu(vorhanden.bdMorgen, k.morgen)) fill.bdMorgen = bdWert(k.morgen);
+      if (k.abend && bdNeu(vorhanden.bdAbend, k.abend)) fill.bdAbend = bdWert(k.abend);
+      if (Object.keys(fill).length) {
+        fill.datum = k.datum;
+        tagePatches.push({ path: `users/${UID}/tage/${k.datum}`, obj: fill });
+        gefuellt++;
+      }
+    });
+    patchAll_(tagePatches);
+  }
   const tabletten = tablettenVerarbeiten_(medikamenteListe_(payload));
   return { tage: Object.keys(tage).length, healthDokumente: geschrieben, ergaenzteTage: gefuellt, tabletten: tabletten };
 }
@@ -210,20 +227,25 @@ function trainingSpeichern_(payload) {
   const proTag = {};
   (payload.aktivitaeten || []).forEach((a) => { (proTag[a.datum] = proTag[a.datum] || []).push(a); });
   const jetzt = new Date().toISOString();
+  const patches = [];
   tage.forEach((t) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(t.datum || '')) return;
-    patch_(`users/${UID}/training/${t.datum}`, {
-      datum: t.datum,
-      last: num_(t.last), ctl: num_(t.ctl), atl: num_(t.atl), tsb: num_(t.tsb), acwr: num_(t.acwr), dauerH: num_(t.dauerH),
-      aktivitaeten: (proTag[t.datum] || []).map((a) => ({
-        start: String(a.start || ''), name: String(a.name || '').slice(0, 120), typ: String(a.typ || ''),
-        dauerMin: num_(a.dauerMin), distanzKm: num_(a.distanzKm), hfAvg: num_(a.hfAvg), hfMax: num_(a.hfMax),
-        wattAvg: num_(a.wattAvg), wattNp: num_(a.wattNp), last: num_(a.last),
-      })),
-      quelle: String(payload.quelle || 'Analytics') + ' ' + String(payload.version || ''),
-      aktualisiert: jetzt,
+    patches.push({
+      path: `users/${UID}/training/${t.datum}`,
+      obj: {
+        datum: t.datum,
+        last: num_(t.last), ctl: num_(t.ctl), atl: num_(t.atl), tsb: num_(t.tsb), acwr: num_(t.acwr), dauerH: num_(t.dauerH),
+        aktivitaeten: (proTag[t.datum] || []).map((a) => ({
+          start: String(a.start || ''), name: String(a.name || '').slice(0, 120), typ: String(a.typ || ''),
+          dauerMin: num_(a.dauerMin), distanzKm: num_(a.distanzKm), hfAvg: num_(a.hfAvg), hfMax: num_(a.hfMax),
+          wattAvg: num_(a.wattAvg), wattNp: num_(a.wattNp), last: num_(a.last),
+        })),
+        quelle: String(payload.quelle || 'Analytics') + ' ' + String(payload.version || ''),
+        aktualisiert: jetzt,
+      },
     });
   });
+  patchAll_(patches);
   return { tage: tage.length, aktivitaeten: (payload.aktivitaeten || []).length };
 }
 function num_(x) { return typeof x === 'number' && isFinite(x) ? x : null; }
@@ -254,11 +276,13 @@ function dienstAktualisieren() {
       endeDatum: Utilities.formatDate(e, TZ, 'yyyy-MM-dd'),
     });
   });
-  Object.keys(tage).forEach((datum) => {
+  const jetzt = new Date().toISOString();
+  const patches = Object.keys(tage).map((datum) => {
     tage[datum].sort((a, b) => a.start.localeCompare(b.start));
-    patch_(`users/${UID}/dienste/${datum}`, { datum: datum, liste: tage[datum], aktualisiert: new Date().toISOString() });
+    return { path: `users/${UID}/dienste/${datum}`, obj: { datum: datum, liste: tage[datum], aktualisiert: jetzt } };
   });
-  return Object.keys(tage).length;
+  patchAll_(patches);
+  return patches.length;
 }
 
 function istDienst_(ev) {
@@ -285,15 +309,53 @@ function headers_() {
   };
 }
 
-function patch_(path, obj) {
+function buildPatchReq_(path, obj, hdrs) {
   const fields = {};
   Object.keys(obj).forEach((k) => (fields[k] = toValue_(obj[k])));
   const mask = Object.keys(obj).map((k) => 'updateMask.fieldPaths=' + encodeURIComponent(k)).join('&');
-  const res = UrlFetchApp.fetch(`${BASE}/${path}?${mask}`, {
-    method: 'patch', contentType: 'application/json', headers: headers_(),
-    payload: JSON.stringify({ fields: fields }), muteHttpExceptions: true,
-  });
+  return {
+    url: `${BASE}/${path}?${mask}`,
+    method: 'patch',
+    contentType: 'application/json',
+    headers: hdrs || headers_(),
+    payload: JSON.stringify({ fields: fields }),
+    muteHttpExceptions: true,
+  };
+}
+
+function patch_(path, obj) {
+  const req = buildPatchReq_(path, obj);
+  const res = UrlFetchApp.fetch(req.url, req);
   if (res.getResponseCode() >= 300) throw new Error('Firestore ' + res.getResponseCode() + ': ' + res.getContentText().slice(0, 400));
+}
+
+function patchAll_(items) {
+  if (!items || !items.length) return;
+  const hdrs = headers_();
+  for (let i = 0; i < items.length; i += 20) {
+    const reqs = items.slice(i, i + 20).map((it) => buildPatchReq_(it.path, it.obj, hdrs));
+    UrlFetchApp.fetchAll(reqs).forEach((res) => {
+      if (res.getResponseCode() >= 300) throw new Error('Firestore ' + res.getResponseCode() + ': ' + res.getContentText().slice(0, 400));
+    });
+  }
+}
+
+function getDocsAll_(paths) {
+  if (!paths || !paths.length) return [];
+  const hdrs = headers_();
+  const outAll = [];
+  for (let i = 0; i < paths.length; i += 20) {
+    const reqs = paths.slice(i, i + 20).map((p) => ({ url: `${BASE}/${p}`, headers: hdrs, muteHttpExceptions: true }));
+    UrlFetchApp.fetchAll(reqs).forEach((res) => {
+      if (res.getResponseCode() === 404) { outAll.push(null); return; }
+      if (res.getResponseCode() >= 300) throw new Error('Firestore ' + res.getResponseCode() + ': ' + res.getContentText().slice(0, 400));
+      const d = JSON.parse(res.getContentText());
+      const out = {};
+      Object.keys(d.fields || {}).forEach((k) => (out[k] = fromValue_(d.fields[k])));
+      outAll.push(out);
+    });
+  }
+  return outAll;
 }
 
 function getDoc_(path) {
@@ -610,20 +672,32 @@ function tablettenVerarbeiten_(liste) {
   });
 
   let gesetzt = 0;
-  Object.keys(proTag).sort().forEach((datum) => {
-    const t = proTag[datum];
-    patch_(`users/${UID}/health/${datum}`, { datum: datum, medikamente: t.alle, aktualisiert: new Date().toISOString() });
-    if (!t.morgen && !t.abend) return;
-    const vorhanden = getDoc_(`users/${UID}/tage/${datum}`) || {};
-    const fill = {};
-    [['morgen', 'tabletteMorgen'], ['abend', 'tabletteAbend']].forEach(([halb, feld]) => {
-      const e = t[halb];
-      if (!e || vorhanden[feld + 'Quelle'] === 'Hand') return;           // Hand-Eintrag hat Vorrang
-      if (vorhanden[feld] === true && vorhanden[feld + 'Zeit'] === e.zeit) return;
-      fill[feld] = true; fill[feld + 'Quelle'] = 'Apple Health'; fill[feld + 'Zeit'] = e.zeit;
+  const jetzt = new Date().toISOString();
+  const daten = Object.keys(proTag).sort();
+  const healthPatches = daten.map((datum) => ({
+    path: `users/${UID}/health/${datum}`,
+    obj: { datum: datum, medikamente: proTag[datum].alle, aktualisiert: jetzt },
+  }));
+  patchAll_(healthPatches);
+
+  const kandidaten = daten.filter((datum) => proTag[datum].morgen || proTag[datum].abend);
+  if (kandidaten.length) {
+    const vorhandene = getDocsAll_(kandidaten.map((datum) => `users/${UID}/tage/${datum}`));
+    const tagePatches = [];
+    kandidaten.forEach((datum, idx) => {
+      const t = proTag[datum];
+      const vorhanden = vorhandene[idx] || {};
+      const fill = {};
+      [['morgen', 'tabletteMorgen'], ['abend', 'tabletteAbend']].forEach(([halb, feld]) => {
+        const e = t[halb];
+        if (!e || vorhanden[feld + 'Quelle'] === 'Hand') return;           // Hand-Eintrag hat Vorrang
+        if (vorhanden[feld] === true && vorhanden[feld + 'Zeit'] === e.zeit) return;
+        fill[feld] = true; fill[feld + 'Quelle'] = 'Apple Health'; fill[feld + 'Zeit'] = e.zeit;
+      });
+      if (Object.keys(fill).length) { fill.datum = datum; tagePatches.push({ path: `users/${UID}/tage/${datum}`, obj: fill }); gesetzt++; }
     });
-    if (Object.keys(fill).length) { fill.datum = datum; patch_(`users/${UID}/tage/${datum}`, fill); gesetzt++; }
-  });
+    patchAll_(tagePatches);
+  }
   PropertiesService.getScriptProperties().setProperty('LETZTE_TABLETTEN',
     new Date().toISOString() + ' Medikamente in Health: ' + Object.keys(namen).join(', ') + (filter ? ` (Filter: ${filter})` : '') + ` · ${gesetzt} Tag(e) abgehakt`);
   return gesetzt;
