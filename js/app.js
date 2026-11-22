@@ -2,7 +2,7 @@ import { firebaseConfig } from './firebase-config.js';
 import { createStore } from './store.js';
 import { berichtErstellen } from './bericht.js';
 
-const VERSION = '1.8.6';
+const VERSION = '1.8.7';
 const REQUIRE_PASSWORD_KEY = 'gc_require_password';
 const AUTO_AUTH_KEY = 'gc_auto_auth_v1';
 
@@ -1109,7 +1109,7 @@ async function renderMehr() {
         <button class="btn primary" id="bericht" style="flex:1.4">PDF speichern</button>
         <button class="btn" id="bericht-teilen" style="flex:1">Teilen …</button>
       </div>
-      <p class="hint" style="margin:10px 0 0">Enthält Blutdruck (Diagramm, Mittelwerte, Höchstwerte), Gewicht, Tabletten, Schlaf, Ruhepuls, HRV, Radtraining, Dienste und alle Tageswerte. „PDF speichern“ legt den Bericht in „Downloads“ ab, „Teilen …“ öffnet Mail, Nachrichten, Drucken usw.</p>
+      <p class="hint" style="margin:10px 0 0">Enthält Blutdruck (Diagramm, Mittelwerte, Höchstwerte), Gewicht, Tabletten, Schlaf, Ruhepuls, HRV, Radtraining, Dienste und alle Tageswerte. ${IST_IOS ? '„PDF speichern“ öffnet das iOS-Menü – dort „In Dateien sichern“ wählen. „Teilen …“ für Mail, Nachrichten, Drucken usw.' : '„PDF speichern“ legt den Bericht in „Downloads“ ab, „Teilen …“ öffnet Mail, Nachrichten, Drucken usw.'}</p>
     </div>
 
     <div class="card">
@@ -1189,8 +1189,7 @@ async function berichtAusgeben(teilen) {
   try {
     const { blob, name } = await berichtErstellen(state.store, state.settings, state.berichtTage, `v${VERSION}`);
     const file = new File([blob], name, { type: 'application/pdf' });
-    if (teilen) await dateiTeilen(file, name);
-    else { herunterladen(file, name); toast('Bericht in „Downloads“ gespeichert'); }
+    await dateiAusgeben(file, { teilen, was: 'Bericht' });
   } catch (e) {
     console.error(e);
     toast('Bericht konnte nicht erstellt werden', true);
@@ -1199,11 +1198,57 @@ async function berichtAusgeben(teilen) {
   }
 }
 
-async function dateiTeilen(file, name) {
-  if (navigator.canShare && navigator.canShare({ files: [file] })) {
-    try { await navigator.share({ files: [file], title: name }); return; } catch (e) { if (e.name === 'AbortError') return; }
+// iPhone/iPad: Downloads per Link (download-Attribut) funktionieren in der Home-Bildschirm-App nicht –
+// iOS zeigt dann nur eine Vorschau („In … öffnen“) und sichert statt der Datei bloß den Link.
+// Deshalb dort immer das Teilen-Menü mit der echten Datei („In Dateien sichern“, Mail, Drucken …).
+const IST_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const kannDateiTeilen = (file) => !!(navigator.canShare && navigator.canShare({ files: [file] }));
+
+async function dateiAusgeben(file, { teilen = false, was = 'Datei' } = {}) {
+  const ueberMenue = kannDateiTeilen(file) && (teilen || IST_IOS);
+  if (!ueberMenue) {
+    herunterladen(file, file.name);
+    toast(`${was} in „Downloads“ gespeichert`);
+    return;
   }
-  herunterladen(file, name);
+  try {
+    await navigator.share({ files: [file], title: file.name });
+  } catch (e) {
+    if (e.name === 'AbortError') return; // selbst abgebrochen
+    // Meist NotAllowedError: Das Erstellen hat zu lange gedauert, iOS verlangt für das
+    // Teilen-Menü einen frischen Tipp. Also fertige Datei mit eigenem Knopf anbieten.
+    console.warn('Teilen ohne frischen Tipp nicht erlaubt', e);
+    dateiBereitAnzeigen(file, was);
+  }
+}
+
+function dateiBereitAnzeigen(file, was) {
+  $('#datei-bereit')?.remove();
+  const box = document.createElement('div');
+  box.id = 'datei-bereit';
+  box.className = 'datei-bereit';
+  box.innerHTML = `
+    <div class="datei-bereit-panel" role="dialog" aria-label="${escapeHtml(was)} ist fertig">
+      <strong>${escapeHtml(was)} ist fertig</strong>
+      <span class="muted small">${escapeHtml(file.name)}</span>
+      <button class="btn primary block" data-a="teilen">${IST_IOS ? 'Sichern / Teilen …' : 'Teilen …'}</button>
+      <button class="btn block" data-a="zu">Schließen</button>
+    </div>`;
+  const zu = () => box.remove();
+  box.addEventListener('click', (e) => { if (e.target === box) zu(); });
+  box.querySelector('[data-a="zu"]').addEventListener('click', zu);
+  box.querySelector('[data-a="teilen"]').addEventListener('click', () => {
+    // direkt im Tipp aufrufen – kein await davor, sonst verweigert iOS wieder
+    navigator.share({ files: [file], title: file.name })
+      .then(zu)
+      .catch((e) => {
+        if (e.name === 'AbortError') return;
+        console.error(e);
+        zu();
+        herunterladen(file, file.name);
+      });
+  });
+  document.body.appendChild(box);
 }
 
 function herunterladen(file, name) {
@@ -1234,14 +1279,7 @@ async function exportCsv() {
   const csv = '﻿' + head.join(';') + '\n' + rows.join('\n');
   const name = `Gesundheitscockpit_${todayKey()}.csv`;
   const file = new File([csv], name, { type: 'text/csv' });
-  if (navigator.canShare && navigator.canShare({ files: [file] })) {
-    try { await navigator.share({ files: [file], title: name }); return; } catch (e) { if (e.name === 'AbortError') return; }
-  }
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(file);
-  a.download = name;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  await dateiAusgeben(file, { teilen: true, was: 'Export' });
 }
 
 boot();

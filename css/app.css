@@ -249,6 +249,18 @@ input[type=range].unset::-webkit-slider-thumb { background: #555c63; }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 .toast.err { border-color: var(--danger); color: #ffd0d0; }
 
+/* „Datei ist fertig“ – zweiter Tipp fürs iOS-Teilen-Menü */
+.datei-bereit {
+  position: fixed; inset: 0; z-index: 30; background: rgba(0, 0, 0, .55);
+  display: flex; align-items: flex-end; justify-content: center;
+  padding: 16px 16px calc(16px + var(--safe-bottom));
+}
+.datei-bereit-panel {
+  width: 100%; max-width: 420px; background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 18px; display: flex; flex-direction: column; gap: 10px;
+}
+.datei-bereit-panel .small { overflow-wrap: anywhere; margin-bottom: 4px; }
+
 @media (min-width: 560px) {
   .stats { grid-template-columns: repeat(4, 1fr); }
 }
