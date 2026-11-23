@@ -2,7 +2,7 @@ import { firebaseConfig } from './firebase-config.js';
 import { createStore } from './store.js';
 import { berichtErstellen } from './bericht.js';
 
-const VERSION = '1.9.1';
+const VERSION = '1.9.2';
 const REQUIRE_PASSWORD_KEY = 'gc_require_password';
 const AUTO_AUTH_KEY = 'gc_auto_auth_v1';
 
@@ -340,15 +340,13 @@ async function renderHeute() {
         <div class="date-nav">
           <button class="icon-btn" data-nav="-1" aria-label="Vorheriger Tag">‹</button>
           <label class="date-pick" title="Datum wählen">
-            <div class="weekday">${isToday ? 'Heute, ' : ''}${weekday}</div>
+            <div class="weekday">${isToday ? `Heute, ${weekday} · Serie <b>${current}</b>` : weekday}</div>
             <div class="date">${dateStr}</div>
             <input type="date" id="date-input" value="${d}" max="${today}" aria-label="Zu einem Datum springen">
           </label>
           <button class="icon-btn" data-nav="1" aria-label="Nächster Tag" ${isToday ? 'disabled' : ''}>›</button>
         </div>
-        ${isToday
-          ? `<div class="streak-line">Serie <b>${current}</b> ${current === 1 ? 'Tag' : 'Tage'} vollständig</div>`
-          : '<button class="today-link" id="to-today">Zurück zu heute</button>'}
+        ${isToday ? '' : '<button class="today-link" id="to-today">Zurück zu heute</button>'}
       </div>
       <div class="ring" aria-label="Erledigte Aufgaben">
         <svg viewBox="0 0 56 56">
@@ -367,7 +365,7 @@ async function renderHeute() {
         <div class="half-head"><div><h2 style="display:inline">Morgens</h2></div><span class="badge" id="badge-morgen">0/3</span></div>
         <div class="mrow">
           <span class="lbl">Gewicht</span>
-          <div class="input-unit"><input id="gewicht" inputmode="decimal" placeholder="–" autocomplete="off" aria-label="Gewicht in kg"><em>kg</em></div>
+          <div class="inline"><div class="input-unit"><input id="gewicht" inputmode="decimal" placeholder="–" autocomplete="off" aria-label="Gewicht in kg"><em>kg</em></div><span class="side" id="gewicht-side"></span></div>
           <div class="info" id="gewicht-info"></div>
         </div>
         ${bpRow('m')}
@@ -378,14 +376,12 @@ async function renderHeute() {
         ${bpRow('a')}
         ${tabRow('tabletteAbend')}
       </div>
-    </section>
-
-    <section class="card">
-      <div class="card-head"><h2>Befinden</h2><span class="sub">optional</span></div>
-      <div class="segmented" id="befinden">
+      <div class="half">
+      <div class="segmented" id="befinden" aria-label="Befinden">
         ${BEFINDEN.map((l, i) => `<button data-v="${i + 1}" type="button">${l}</button>`).join('')}
       </div>
       <div class="note" id="note"><textarea id="notiz" rows="1" aria-label="Notiz" placeholder="Notiz, z.B. Kopfschmerz, Rücken, Dienst..."></textarea><div class="note-preview" id="note-preview" aria-hidden="true"></div></div>
+      </div>
     </section>
   `;
 
@@ -393,14 +389,12 @@ async function renderHeute() {
   const g = $('#gewicht');
   if (day.gewicht != null) g.value = fmt(day.gewicht);
   const koerper = health[d] || {};
-  const gInfo = [
-    day.gewicht != null && day.gewichtQuelle ? `aus ${day.gewichtQuelle}` : '',
+  $('#gewicht-side').innerHTML = [
     koerper.koerperfett != null ? `Fett ${fmt(koerper.koerperfett)} %` : '',
     koerper.muskelmasse != null ? `Muskeln ${fmt(koerper.muskelmasse)} kg` : '',
-  ].filter(Boolean).join(', ');
-  const gMess = (koerper.gewichtMessungen || []).length > 1
+  ].filter(Boolean).join('<br>');
+  $('#gewicht-info').textContent = (koerper.gewichtMessungen || []).length > 1
     ? koerper.gewichtMessungen.map((m) => `${m.zeit} ${fmt(m.gewicht)}`).join('  ·  ') : '';
-  $('#gewicht-info').innerHTML = [gInfo, gMess].filter(Boolean).map(escapeHtml).join('<br>');
   fillBp('m', day.bdMorgen);
   fillBp('a', day.bdAbend);
   fillBpWeitere('m', health[d]?.bdMessungen, day.bdMorgen);
@@ -545,6 +539,10 @@ function schweiss(a, messungen) {
   const stunden = (a.dauerMin || 0) / 60;
   return { vor, nach, verlust, proStunde: stunden > 0.25 && verlust > 0 ? round1(verlust / stunden) : null };
 }
+// Kurzform für die Erholungstafel: Name, Dauer, Last – passt in eine Zeile
+function aktKurz(a) {
+  return [a.name || SPORT[a.typ] || 'Training', `${a.dauerMin} min`, a.last != null ? `Last ${a.last}` : ''].filter(Boolean).join(' · ');
+}
 function schweissText(sw) {
   const basis = `vorher ${fmt(sw.vor.gewicht)} (${sw.vor.zeit}) → nachher ${fmt(sw.nach.gewicht)} kg (${sw.nach.zeit})`;
   if (sw.verlust <= 0) return `${basis}: kein Gewichtsverlust – gut getrunken`;
@@ -589,7 +587,7 @@ function ampel(d, q, day, health, dienste, training = {}) {
     else if (form.tsb < -10) add('gelb', `Form (TSB) ${tsbTxt(form.tsb)} – belastet`, 'tsb');
     else add('gruen', `Form (TSB) ${tsbTxt(form.tsb)}`, 'tsb');
   }
-  (gestern?.aktivitaeten || []).forEach((a) => add('info', `gestern: ${aktText(a)}`));
+  (gestern?.aktivitaeten || []).forEach((a) => add('info', `gestern: ${aktKurz(a)}`));
   const bp = day.bdMorgen || (h.bdTagesmittel ? { ...h.bdTagesmittel } : null);
   if (bp && overLimit(bp)) add('gelb', `Blutdruck ${bp.sys}/${bp.dia} über deinem Grenzwert`);
 
@@ -629,7 +627,7 @@ function erholungKarte(d, day, health, dienste, isToday, training = {}) {
   const notizen = (a?.gruende || []).filter((g) => !g.feld).map((g) => `<li class="n-${g.stufe}">${escapeHtml(g.text)}</li>`);
   heuteAkt.forEach((x) => {
     const sw = schweiss(x, health[d]?.gewichtMessungen);
-    notizen.push(`<li class="n-info"><span>${d === todayKey() ? 'heute' : 'trainiert'}: ${escapeHtml(aktText(x))}${sw ? `<span class="sub-line">${escapeHtml(schweissText(sw))}</span>` : ''}</span></li>`);
+    notizen.push(`<li class="n-info"><span>${d === todayKey() ? 'heute' : 'trainiert'}: ${escapeHtml(aktKurz(x))}${sw ? ` · ${sw.verlust > 0 ? `−${fmt(sw.verlust)} kg` : '± 0 kg'}` : ''}</span></li>`);
   });
   if (morgenTxt) notizen.push(`<li class="n-info">${escapeHtml(morgenTxt)}</li>`);
 
@@ -638,18 +636,11 @@ function erholungKarte(d, day, health, dienste, isToday, training = {}) {
       <div class="verdict"><strong>${a ? TXT[a.stufe][0] : 'Erholung'}</strong><span class="src">${stand}</span></div>
       <div class="advice">${a ? TXT[a.stufe][1] : 'Noch zu wenige Vergleichswerte für eine Einschätzung.'}</div>
       <div class="gauges">
-        <div class="gauge g-${stufeVon('schlaf')}"><b>${schlafWert}</b><span>Schlaf${s?.start ? ` ${s.start}–${s.ende}` : ''}</span></div>
+        <div class="gauge g-${stufeVon('schlaf')}"><b>${schlafWert}</b><span>Schlaf${s?.start ? ` ${s.start}–${s.ende}` : ''}</span>${s && s.gesamt ? `<div class="sleep-bar" title="Tief ${pct(s.tief)} % · REM ${pct(s.rem)} % · Kern ${pct(s.kern)} %" aria-label="Tief ${pct(s.tief)} %, REM ${pct(s.rem)} %, Kern ${pct(s.kern)} %"><i style="width:${pct(s.tief)}%;background:#3f6fd8"></i><i style="width:${pct(s.rem)}%;background:#8fb6ff"></i><i style="width:${pct(s.kern)}%;background:#33466f"></i></div>` : ''}</div>
         <div class="gauge g-${stufeVon('ruhepuls')}"><b>${h.ruhepuls ?? '–'}<small>bpm</small></b><span>Ruhepuls${rpB ? ` · Ø ${Math.round(rpB)}` : ''}</span></div>
         <div class="gauge g-${stufeVon('hrv')}"><b>${h.hrv ?? '–'}<small>ms</small></b><span>HRV${hrvB ? ` · Ø ${Math.round(hrvB)}` : ''}</span></div>
       </div>
-      ${s && s.gesamt ? `<div class="sleep-bar" title="Tief ${pct(s.tief)} % · REM ${pct(s.rem)} % · Kern ${pct(s.kern)} %">
-          <i style="width:${pct(s.tief)}%;background:#3f6fd8"></i><i style="width:${pct(s.rem)}%;background:#8fb6ff"></i><i style="width:${pct(s.kern)}%;background:#2c3d63"></i></div>
-        <div class="sleep-legend"><span><i style="background:#3f6fd8"></i>Tief ${pct(s.tief)} %</span><span><i style="background:#8fb6ff"></i>REM ${pct(s.rem)} %</span><span><i style="background:#2c3d63"></i>Kern ${pct(s.kern)} %</span></div>` : ''}
-      ${tr.form ? `<div class="gauges form">
-        <div class="gauge"><b>${fmt(tr.form.ctl, 0)}</b><span>Fitness CTL</span></div>
-        <div class="gauge"><b>${fmt(tr.form.atl, 0)}</b><span>Ermüdung ATL</span></div>
-        <div class="gauge g-${stufeVon('tsb')}"><b>${tsbTxt(tr.form.tsb)}</b><span>Form TSB${tr.formVomVortag ? ' · gestern' : ''}</span></div>
-      </div>` : ''}
+      ${tr.form ? `<div class="formline"><span>Fitness <b>${fmt(tr.form.ctl, 0)}</b></span><span>Ermüdung <b>${fmt(tr.form.atl, 0)}</b></span><span class="g-${stufeVon('tsb')}">Form <b>${tsbTxt(tr.form.tsb)}</b>${tr.formVomVortag ? ' (gestern)' : ''}</span></div>` : ''}
       ${notizen.length ? `<ul class="notes">${notizen.join('')}</ul>` : ''}
     </section>`;
 }
@@ -657,7 +648,7 @@ function erholungKarte(d, day, health, dienste, isToday, training = {}) {
 function bpRow(p) {
   return `
     <div class="mrow">
-      <span class="lbl">Blutdruck</span>
+      <span class="lbl">Blutdruck<small id="${p}-zeit"></small></span>
       <div class="bp">
         <input id="${p}-sys" data-bp="${p}" inputmode="numeric" pattern="[0-9]*" placeholder="Sys" autocomplete="off" aria-label="Systolisch">
         <input id="${p}-dia" data-bp="${p}" inputmode="numeric" pattern="[0-9]*" placeholder="Dia" autocomplete="off" aria-label="Diastolisch">
@@ -675,15 +666,12 @@ function fillBp(p, bp) {
   fillBpInfo(p, bp);
 }
 function fillBpInfo(p, bp) {
-  const el = $(`#${p}-info`);
-  if (!bp) { el.textContent = ''; return; }
-  const parts = [];
-  if (bp.zeit) parts.push(`${bp.zeit} Uhr`);
-  if (bp.quelle) parts.push(`aus ${bp.quelle}`);
-  if (bp.anzahl > 1) parts.push(`Ø aus ${bp.anzahl} Messungen`);
-  if (overLimit(bp)) parts.push('über deinem Grenzwert');
-  el.textContent = parts.join(', ');
-  el.classList.toggle('warn', !!overLimit(bp));
+  const el = $(`#${p}-info`), zeit = $(`#${p}-zeit`);
+  const ueber = !!(bp && overLimit(bp));
+  zeit.textContent = bp ? [bp.zeit, bp.anzahl > 1 ? `Ø ${bp.anzahl}×` : ''].filter(Boolean).join(' · ') : '';
+  el.textContent = ueber ? `${bp.sys}/${bp.dia} liegt über deinem Grenzwert` : '';
+  el.classList.toggle('warn', ueber);
+  [`#${p}-sys`, `#${p}-dia`].forEach((id) => $(id).classList.toggle('over', ueber));
 }
 // Weitere Messreihen desselben Halbtags (z. B. nach der Tablette) – der Tageswert ist die erste Messreihe
 function fillBpWeitere(p, messungen, bp) {
