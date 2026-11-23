@@ -2,7 +2,7 @@ import { firebaseConfig } from './firebase-config.js';
 import { createStore } from './store.js';
 import { berichtErstellen } from './bericht.js';
 
-const VERSION = '1.8.7';
+const VERSION = '1.9.0';
 const REQUIRE_PASSWORD_KEY = 'gc_require_password';
 const AUTO_AUTH_KEY = 'gc_auto_auth_v1';
 
@@ -67,6 +67,7 @@ const TASKS = [
 const MORNING = ['gewicht', 'bdMorgen', 'tabletteMorgen'];
 const EVENING = ['bdAbend', 'tabletteAbend'];
 const BEFINDEN = ['schlecht', 'mäßig', 'okay', 'gut', 'sehr gut'];
+const RING = 2 * Math.PI * 23; // Umfang des Fortschrittsrings
 
 const LIMITS = {
   gewicht: [30, 250], sys: [60, 260], dia: [30, 160], puls: [30, 220],
@@ -334,100 +335,79 @@ async function renderHeute() {
   const hour = new Date().getHours();
 
   $('#view').innerHTML = `
-    <section class="hero">
+    <header class="top">
       <div>
         <div class="date-nav">
           <button class="icon-btn" data-nav="-1" aria-label="Vorheriger Tag">‹</button>
           <label class="date-pick" title="Datum wählen">
             <div class="weekday">${isToday ? 'Heute, ' : ''}${weekday}</div>
-            <div class="date">${dateStr}<svg class="cal-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="17" rx="3"/><path d="M3 9h18M8 2v4M16 2v4"/></svg></div>
+            <div class="date">${dateStr}</div>
             <input type="date" id="date-input" value="${d}" max="${today}" aria-label="Zu einem Datum springen">
           </label>
           <button class="icon-btn" data-nav="1" aria-label="Nächster Tag" ${isToday ? 'disabled' : ''}>›</button>
         </div>
-        ${isToday ? '' : '<button class="today-link" id="to-today">Zurück zu heute</button>'}
+        ${isToday
+          ? `<div class="streak-line">Serie <b>${current}</b> ${current === 1 ? 'Tag' : 'Tage'} vollständig</div>`
+          : '<button class="today-link" id="to-today">Zurück zu heute</button>'}
       </div>
       <div class="ring" aria-label="Erledigte Aufgaben">
-        <svg viewBox="0 0 68 68">
-          <defs><linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7cf2c4"/><stop offset="1" stop-color="#0b8a5f"/></linearGradient></defs>
-          <circle class="track" cx="34" cy="34" r="28" fill="none" stroke-width="7"/>
-          <circle class="bar" id="ring-bar" cx="34" cy="34" r="28" fill="none" stroke-width="7" stroke-dasharray="175.9" stroke-dashoffset="175.9"/>
+        <svg viewBox="0 0 56 56">
+          <defs><linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f4b740"/><stop offset=".55" stop-color="#f38b4a"/><stop offset="1" stop-color="#ee6352"/></linearGradient></defs>
+          <circle class="track" cx="28" cy="28" r="23" fill="none" stroke-width="6"/>
+          <circle class="bar" id="ring-bar" cx="28" cy="28" r="23" fill="none" stroke-width="6" stroke-dasharray="${RING}" stroke-dashoffset="${RING}"/>
         </svg>
-        <div class="label"><span id="ring-num">0/5</span><small>erledigt</small></div>
+        <div class="label"><span id="ring-num">0/5</span></div>
       </div>
-    </section>
-
-    <div class="streak">
-      <span class="chip ${current > 0 ? 'good' : ''}">Serie: <strong>${current}</strong> ${current === 1 ? 'Tag' : 'Tage'} vollständig</span>
-    </div>
+    </header>
 
     ${erholungKarte(d, day, health, dienste, isToday, training)}
 
-    <div class="card" id="card-morgen">
-      <div class="card-head">
-        <div><h2>Morgens</h2><div class="sub">Wiegen · Blutdruck · Tablette</div></div>
-        <span class="badge" id="badge-morgen">0/3</span>
-      </div>
-      <div class="row">
-        <label class="field"><span>Gewicht</span>
-          <div class="input-unit"><input id="gewicht" inputmode="decimal" placeholder="z. B. 94,8" autocomplete="off"><em>kg</em></div>
-          <div class="bp-time" id="gewicht-info"></div>
-        </label>
-        ${bpBlock('m', 'Blutdruck morgens')}
-        ${toggleBtn('tabletteMorgen', 'Morgentablette genommen')}
-        <div class="bp-time" id="tabletteMorgen-info"></div>
-      </div>
-    </div>
-
-    <div class="card" id="card-abend">
-      <div class="card-head">
-        <div><h2>Abends</h2><div class="sub">${isToday && hour < 18 ? 'Erinnerung um 18:30 Uhr' : 'Blutdruck · Tablette'}</div></div>
-        <span class="badge" id="badge-abend">0/2</span>
-      </div>
-      <div class="row">
-        ${bpBlock('a', 'Blutdruck abends')}
-        ${toggleBtn('tabletteAbend', 'Abendtablette genommen')}
-        <div class="bp-time" id="tabletteAbend-info"></div>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-head"><div><h2>Befinden</h2><div class="sub">optional</div></div></div>
-      <div class="row">
-        <div class="segmented" id="befinden">
-          ${BEFINDEN.map((l, i) => `<button data-v="${i + 1}">${l}</button>`).join('')}
+    <section class="card">
+      <div class="half">
+        <div class="half-head"><div><h2 style="display:inline">Morgens</h2></div><span class="badge" id="badge-morgen">0/3</span></div>
+        <div class="mrow">
+          <span class="lbl">Gewicht</span>
+          <div class="input-unit"><input id="gewicht" inputmode="decimal" placeholder="–" autocomplete="off" aria-label="Gewicht in kg"><em>kg</em></div>
+          <div class="info" id="gewicht-info"></div>
         </div>
-        <div class="range-wrap">
-          <div class="range-head"><span>Rücken (0 = keine Beschwerden, 10 = stark)</span><strong id="ruecken-val">–</strong></div>
-          <input type="range" id="ruecken" min="0" max="10" step="1" value="0">
-        </div>
-        <label class="field"><span>Notiz</span><textarea id="notiz" placeholder="z. B. schlecht geschlafen, Kopfschmerzen, Nachtdienst …"></textarea></label>
+        ${bpRow('m')}
+        ${tabRow('tabletteMorgen')}
       </div>
-    </div>
+      <div class="half">
+        <div class="half-head"><div><h2 style="display:inline">Abends</h2>${isToday && hour < 18 ? '<span class="sub">Erinnerung 18:30</span>' : ''}</div><span class="badge" id="badge-abend">0/2</span></div>
+        ${bpRow('a')}
+        ${tabRow('tabletteAbend')}
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>Befinden</h2><span class="sub">optional</span></div>
+      <div class="segmented" id="befinden">
+        ${BEFINDEN.map((l, i) => `<button data-v="${i + 1}" type="button">${l}</button>`).join('')}
+      </div>
+      <textarea id="notiz" rows="2" aria-label="Notiz" placeholder="Notiz, z. B. Kopfschmerzen, Rücken, Nachtdienst …"></textarea>
+    </section>
   `;
 
   // Werte eintragen
   const g = $('#gewicht');
   if (day.gewicht != null) g.value = fmt(day.gewicht);
   const koerper = health[d] || {};
-  $('#gewicht-info').textContent = [
+  const gInfo = [
     day.gewicht != null && day.gewichtQuelle ? `aus ${day.gewichtQuelle}` : '',
-    koerper.koerperfett != null ? `Körperfett ${fmt(koerper.koerperfett)} %` : '',
-    koerper.muskelmasse != null ? `Muskelmasse ${fmt(koerper.muskelmasse)} kg` : '',
-  ].filter(Boolean).join(' · ');
-  if ((koerper.gewichtMessungen || []).length > 1) {
-    $('#gewicht-info').textContent += ` — Messungen: ${koerper.gewichtMessungen.map((m) => `${m.zeit} ${fmt(m.gewicht)}`).join(' · ')}`;
-  }
+    koerper.koerperfett != null ? `Fett ${fmt(koerper.koerperfett)} %` : '',
+    koerper.muskelmasse != null ? `Muskeln ${fmt(koerper.muskelmasse)} kg` : '',
+  ].filter(Boolean).join(', ');
+  const gMess = (koerper.gewichtMessungen || []).length > 1
+    ? koerper.gewichtMessungen.map((m) => `${m.zeit} ${fmt(m.gewicht)}`).join('  ·  ') : '';
+  $('#gewicht-info').innerHTML = [gInfo, gMess].filter(Boolean).map(escapeHtml).join('<br>');
   fillBp('m', day.bdMorgen);
   fillBp('a', day.bdAbend);
   fillBpWeitere('m', health[d]?.bdMessungen, day.bdMorgen);
   fillBpWeitere('a', health[d]?.bdMessungen, day.bdAbend);
-  setToggle('tabletteMorgen', !!day.tabletteMorgen);
-  setToggle('tabletteAbend', !!day.tabletteAbend);
-  tabletteInfo('tabletteMorgen', day);
-  tabletteInfo('tabletteAbend', day);
+  tabletteAnzeigen('tabletteMorgen', day, health[d], isToday);
+  tabletteAnzeigen('tabletteAbend', day, health[d], isToday);
   setBefinden(day.befinden);
-  setRuecken(day.ruecken);
   $('#notiz').value = day.notiz || '';
   updateProgress(day);
 
@@ -490,16 +470,7 @@ async function renderHeute() {
     }));
   }
 
-  // Tabletten
-  for (const key of ['tabletteMorgen', 'tabletteAbend']) {
-    $(`[data-toggle="${key}"]`).addEventListener('click', () => {
-      const on = !day[key];
-      setToggle(key, on);
-      day[key + 'Quelle'] = 'Hand'; day[key + 'Zeit'] = null;
-      tabletteInfo(key, day);
-      save({ [key]: on, [key + 'Quelle']: 'Hand', [key + 'Zeit']: null }, on ? 'Tablette abgehakt' : null);
-    });
-  }
+  // Tabletten: keine Eingabe – kommen ausschließlich aus Apple Health (Empfänger)
 
   // Befinden
   $$('#befinden button').forEach((b) => b.addEventListener('click', () => {
@@ -508,11 +479,6 @@ async function renderHeute() {
     setBefinden(next);
     save({ befinden: next });
   }));
-
-  // Rücken
-  const r = $('#ruecken');
-  r.addEventListener('input', () => { $('#ruecken-val').textContent = r.value; r.classList.remove('unset'); });
-  r.addEventListener('change', () => save({ ruecken: Number(r.value) }, 'Rücken gespeichert'));
 
   // Notiz
   $('#notiz').addEventListener('change', (e) => save({ notiz: e.target.value.trim() }, 'Notiz gespeichert'));
@@ -583,7 +549,7 @@ function tsbTxt(t) { return `${t > 0 ? '+' : ''}${fmt(t, 0)}`; }
 function ampel(d, q, day, health, dienste, training = {}) {
   const h = health[q] || {};
   const gruende = [];
-  const add = (stufe, text) => gruende.push({ stufe, text });
+  const add = (stufe, text, feld = null) => gruende.push({ stufe, text, feld });
   const { nachNacht, heute } = dienstInfo(d, dienste);
   if (nachNacht) add('gelb', `nach Nachtdienst (${nachNacht.titel.split(' ')[0]}, bis ${nachNacht.ende} Uhr)`);
   heute.forEach((x) => {
@@ -593,29 +559,29 @@ function ampel(d, q, day, health, dienste, training = {}) {
 
   const sch = h.schlaf?.gesamt;
   if (sch != null) {
-    if (sch < 5) add('rot', `nur ${hm(sch)} Schlaf`);
-    else if (sch < 6.5) add('gelb', `${hm(sch)} Schlaf`);
-    else add('gruen', `${hm(sch)} Schlaf`);
+    if (sch < 5) add('rot', `nur ${hm(sch)} Schlaf`, 'schlaf');
+    else if (sch < 6.5) add('gelb', `${hm(sch)} Schlaf`, 'schlaf');
+    else add('gruen', `${hm(sch)} Schlaf`, 'schlaf');
   }
   const rp = h.ruhepuls, rpB = baseline(health, q, 'ruhepuls');
   if (rp != null && rpB != null) {
     const diff = rp - rpB;
-    if (diff >= 5) add('rot', `Ruhepuls ${rp} (+${Math.round(diff)} über Ø)`);
-    else if (diff >= 3) add('gelb', `Ruhepuls ${rp} (+${Math.round(diff)} über Ø)`);
-    else add('gruen', `Ruhepuls ${rp} im Normalbereich`);
+    if (diff >= 5) add('rot', `Ruhepuls ${rp} (+${Math.round(diff)} über Ø)`, 'ruhepuls');
+    else if (diff >= 3) add('gelb', `Ruhepuls ${rp} (+${Math.round(diff)} über Ø)`, 'ruhepuls');
+    else add('gruen', `Ruhepuls ${rp} im Normalbereich`, 'ruhepuls');
   }
   const hrv = h.hrv, hrvB = baseline(health, q, 'hrv');
   if (hrv != null && hrvB != null) {
     const q = hrv / hrvB;
-    if (q <= 0.8) add('rot', `HRV ${hrv} ms (${Math.round((1 - q) * 100)} % unter Ø)`);
-    else if (q <= 0.9) add('gelb', `HRV ${hrv} ms (${Math.round((1 - q) * 100)} % unter Ø)`);
-    else add('gruen', `HRV ${hrv} ms im Normalbereich`);
+    if (q <= 0.8) add('rot', `HRV ${hrv} ms (${Math.round((1 - q) * 100)} % unter Ø)`, 'hrv');
+    else if (q <= 0.9) add('gelb', `HRV ${hrv} ms (${Math.round((1 - q) * 100)} % unter Ø)`, 'hrv');
+    else add('gruen', `HRV ${hrv} ms im Normalbereich`, 'hrv');
   }
   const { gestern, form } = trainingInfo(d, training);
   if (form && form.tsb != null) {
-    if (form.tsb < -25) add('rot', `Form (TSB) ${tsbTxt(form.tsb)} – stark belastet`);
-    else if (form.tsb < -10) add('gelb', `Form (TSB) ${tsbTxt(form.tsb)} – belastet`);
-    else add('gruen', `Form (TSB) ${tsbTxt(form.tsb)}`);
+    if (form.tsb < -25) add('rot', `Form (TSB) ${tsbTxt(form.tsb)} – stark belastet`, 'tsb');
+    else if (form.tsb < -10) add('gelb', `Form (TSB) ${tsbTxt(form.tsb)} – belastet`, 'tsb');
+    else add('gruen', `Form (TSB) ${tsbTxt(form.tsb)}`, 'tsb');
   }
   (gestern?.aktivitaeten || []).forEach((a) => add('info', `gestern: ${aktText(a)}`));
   const bp = day.bdMorgen || (h.bdTagesmittel ? { ...h.bdTagesmittel } : null);
@@ -632,13 +598,14 @@ function erholungKarte(d, day, health, dienste, isToday, training = {}) {
   if (!health[d] && isToday) q = [addDays(d, -1), addDays(d, -2)].find((k) => health[k]) || d;
   const h = health[q];
   const { morgen } = dienstInfo(d, dienste);
-  const morgenTxt = morgen.length ? `Morgen: ${morgen.map((x) => `${DIENST_NAME[x.art] || 'Dienst'} ${x.start}–${x.ende}`).join(', ')}` : '';
+  const morgenTxt = morgen.length ? `Morgen ${morgen.map((x) => `${DIENST_NAME[x.art] || 'Dienst'} ${x.start}–${x.ende}`).join(', ')}` : '';
   if (!h) {
-    return `<div class="card"><div class="card-head"><div><h2>Erholung</h2><div class="sub">aus Apple Health</div></div></div>
-      <div class="empty" style="padding:8px 0">Für diesen Tag sind noch keine Daten aus Health Auto Export angekommen.</div>
-      ${morgenTxt ? `<p class="muted small" style="margin:6px 0 0">${morgenTxt}</p>` : ''}</div>`;
+    return `<section class="card recovery">
+      <div class="verdict"><strong>Erholung</strong><span class="src">Apple Health</span></div>
+      <div class="advice" style="margin-bottom:0">Für diesen Tag sind noch keine Daten angekommen.</div>
+      ${morgenTxt ? `<ul class="notes"><li>${escapeHtml(morgenTxt)}</li></ul>` : ''}</section>`;
   }
-  const stand = q !== d ? `Stand: ${q === addDays(d, -1) ? 'gestern' : 'vorgestern'} (${fmtShort(q)}) – die letzte Nacht kommt mit der nächsten Lieferung` : '';
+  const stand = q !== d ? `Stand ${q === addDays(d, -1) ? 'gestern' : 'vorgestern'}, ${fmtShort(q)}` : 'Apple Health';
   const a = ampel(d, q, day, health, dienste, training);
   const tr = trainingInfo(d, training);
   const heuteAkt = tr.heute?.aktivitaeten || [];
@@ -647,50 +614,51 @@ function erholungKarte(d, day, health, dienste, isToday, training = {}) {
     gelb: ['Eingeschränkt erholt', 'Intensität reduzieren – lieber locker (Z1/Z2).'],
     rot: ['Schlecht erholt', 'Ruhetag oder nur sehr locker.'],
   };
+  const stufeVon = (feld) => a?.gruende.find((g) => g.feld === feld)?.stufe || '';
   const s = h.schlaf;
   const pct = (x) => (s && s.gesamt ? Math.round((x / s.gesamt) * 100) : 0);
   const rpB = baseline(health, q, 'ruhepuls'), hrvB = baseline(health, q, 'hrv');
+  const schlafWert = s?.gesamt != null ? hm(s.gesamt).replace(' h', '<small>h</small>') : '–';
+
+  const notizen = (a?.gruende || []).filter((g) => !g.feld).map((g) => `<li class="n-${g.stufe}">${escapeHtml(g.text)}</li>`);
+  heuteAkt.forEach((x) => {
+    const sw = schweiss(x, health[d]?.gewichtMessungen);
+    notizen.push(`<li class="n-info"><span>${d === todayKey() ? 'heute' : 'trainiert'}: ${escapeHtml(aktText(x))}${sw ? `<span class="sub-line">${escapeHtml(schweissText(sw))}</span>` : ''}</span></li>`);
+  });
+  if (morgenTxt) notizen.push(`<li class="n-info">${escapeHtml(morgenTxt)}</li>`);
+
   return `
-    <div class="card ampel-card ${a ? 'ampel-' + a.stufe : ''}">
-      <div class="card-head">
-        <div><h2>Erholung</h2><div class="sub">${stand || 'aus Apple Health'}</div></div>
-        ${a ? `<span class="ampel-dot" aria-hidden="true"></span>` : ''}
+    <section class="card recovery ${a ? 's-' + a.stufe : ''}">
+      <div class="verdict"><strong>${a ? TXT[a.stufe][0] : 'Erholung'}</strong><span class="src">${stand}</span></div>
+      <div class="advice">${a ? TXT[a.stufe][1] : 'Noch zu wenige Vergleichswerte für eine Einschätzung.'}</div>
+      <div class="gauges">
+        <div class="gauge g-${stufeVon('schlaf')}"><b>${schlafWert}</b><span>Schlaf${s?.start ? ` ${s.start}–${s.ende}` : ''}</span></div>
+        <div class="gauge g-${stufeVon('ruhepuls')}"><b>${h.ruhepuls ?? '–'}<small>bpm</small></b><span>Ruhepuls${rpB ? ` · Ø ${Math.round(rpB)}` : ''}</span></div>
+        <div class="gauge g-${stufeVon('hrv')}"><b>${h.hrv ?? '–'}<small>ms</small></b><span>HRV${hrvB ? ` · Ø ${Math.round(hrvB)}` : ''}</span></div>
       </div>
-      ${a ? `<div class="ampel-text"><strong>${TXT[a.stufe][0]}</strong> – ${TXT[a.stufe][1]}</div>
-      <ul class="ampel-gruende">${a.gruende.map((g) => `<li class="g-${g.stufe}">${escapeHtml(g.text)}</li>`).join('')}</ul>` : ''}
-      <div class="kpis">
-        <div class="kpi"><b>${hm(s?.gesamt)}</b><span>Schlaf${s?.start ? ` · ${s.start}–${s.ende}` : ''}</span></div>
-        <div class="kpi"><b>${h.ruhepuls ?? '–'}</b><span>Ruhepuls${rpB ? ` · Ø ${Math.round(rpB)}` : ''}</span></div>
-        <div class="kpi"><b>${h.hrv ?? '–'}</b><span>HRV ms${hrvB ? ` · Ø ${Math.round(hrvB)}` : ''}</span></div>
-      </div>
-      ${s ? `<div class="sleep-bar" title="Tief ${pct(s.tief)} % · REM ${pct(s.rem)} % · Kern ${pct(s.kern)} %">
-          <i style="width:${pct(s.tief)}%;background:#1b6fb5"></i><i style="width:${pct(s.rem)}%;background:#5aa9f0"></i><i style="width:${pct(s.kern)}%;background:#2f3a46"></i></div>
-        <div class="chart-legend"><span><i style="background:#1b6fb5"></i>Tief ${pct(s.tief)} %</span><span><i style="background:#5aa9f0"></i>REM ${pct(s.rem)} %</span><span><i style="background:#2f3a46"></i>Kern ${pct(s.kern)} %</span></div>` : ''}
-      ${tr.form ? `<div class="kpis">
-        <div class="kpi"><b>${fmt(tr.form.ctl, 0)}</b><span>Fitness (CTL)</span></div>
-        <div class="kpi"><b>${fmt(tr.form.atl, 0)}</b><span>Ermüdung (ATL)</span></div>
-        <div class="kpi"><b>${tsbTxt(tr.form.tsb)}</b><span>Form (TSB)${tr.formVomVortag ? ' · gestern' : ''}</span></div>
+      ${s && s.gesamt ? `<div class="sleep-bar" title="Tief ${pct(s.tief)} % · REM ${pct(s.rem)} % · Kern ${pct(s.kern)} %">
+          <i style="width:${pct(s.tief)}%;background:#3f6fd8"></i><i style="width:${pct(s.rem)}%;background:#8fb6ff"></i><i style="width:${pct(s.kern)}%;background:#2c3d63"></i></div>
+        <div class="sleep-legend"><span><i style="background:#3f6fd8"></i>Tief ${pct(s.tief)} %</span><span><i style="background:#8fb6ff"></i>REM ${pct(s.rem)} %</span><span><i style="background:#2c3d63"></i>Kern ${pct(s.kern)} %</span></div>` : ''}
+      ${tr.form ? `<div class="gauges form">
+        <div class="gauge"><b>${fmt(tr.form.ctl, 0)}</b><span>Fitness CTL</span></div>
+        <div class="gauge"><b>${fmt(tr.form.atl, 0)}</b><span>Ermüdung ATL</span></div>
+        <div class="gauge g-${stufeVon('tsb')}"><b>${tsbTxt(tr.form.tsb)}</b><span>Form TSB${tr.formVomVortag ? ' · gestern' : ''}</span></div>
       </div>` : ''}
-      ${heuteAkt.length ? `<div class="small" style="margin:10px 0 0;color:var(--text)">${d === todayKey() ? 'Heute' : 'An diesem Tag'} trainiert:${heuteAkt.map((x) => {
-        const sw = schweiss(x, health[d]?.gewichtMessungen);
-        return `<div style="margin-top:4px">${escapeHtml(aktText(x))}${sw ? `<div class="muted" style="margin-top:2px">⚖︎ ${escapeHtml(schweissText(sw))}</div>` : ''}</div>`;
-      }).join('')}</div>` : ''}
-      ${morgenTxt ? `<p class="small" style="margin:10px 0 0;color:var(--text)">${morgenTxt}</p>` : ''}
-      <p class="muted small" style="margin:10px 0 0">Faustregel aus Schlaf, Ruhepuls, HRV, Form und Diensten im Vergleich zu deinen letzten 4 Wochen – dein Tages-Check bleibt maßgeblich.${tr.form ? '' : ' Trainingsdaten kommen aus Analytics, sobald dort abgeglichen wurde.'}</p>
-    </div>`;
+      ${notizen.length ? `<ul class="notes">${notizen.join('')}</ul>` : ''}
+    </section>`;
 }
 
-function bpBlock(p, title) {
+function bpRow(p) {
   return `
-    <div class="field">
-      <span>${title}</span>
+    <div class="mrow">
+      <span class="lbl">Blutdruck</span>
       <div class="bp">
-        <label>Sys<input id="${p}-sys" data-bp="${p}" inputmode="numeric" pattern="[0-9]*" placeholder="–" autocomplete="off"></label>
-        <label>Dia<input id="${p}-dia" data-bp="${p}" inputmode="numeric" pattern="[0-9]*" placeholder="–" autocomplete="off"></label>
-        <label>Puls<input id="${p}-puls" data-bp="${p}" inputmode="numeric" pattern="[0-9]*" placeholder="–" autocomplete="off"></label>
+        <input id="${p}-sys" data-bp="${p}" inputmode="numeric" pattern="[0-9]*" placeholder="Sys" autocomplete="off" aria-label="Systolisch">
+        <input id="${p}-dia" data-bp="${p}" inputmode="numeric" pattern="[0-9]*" placeholder="Dia" autocomplete="off" aria-label="Diastolisch">
+        <input id="${p}-puls" data-bp="${p}" inputmode="numeric" pattern="[0-9]*" placeholder="Puls" autocomplete="off" aria-label="Puls">
       </div>
-      <div class="bp-time" id="${p}-info"></div>
-      <div class="bp-time" id="${p}-weitere"></div>
+      <div class="info" id="${p}-info"></div>
+      <div class="info" id="${p}-weitere"></div>
     </div>`;
 }
 function fillBp(p, bp) {
@@ -704,12 +672,12 @@ function fillBpInfo(p, bp) {
   const el = $(`#${p}-info`);
   if (!bp) { el.textContent = ''; return; }
   const parts = [];
-  if (bp.zeit) parts.push(`gemessen um ${bp.zeit} Uhr`);
+  if (bp.zeit) parts.push(`${bp.zeit} Uhr`);
   if (bp.quelle) parts.push(`aus ${bp.quelle}`);
   if (bp.anzahl > 1) parts.push(`Ø aus ${bp.anzahl} Messungen`);
-  if (overLimit(bp)) parts.push('⚠︎ über deinem Grenzwert');
-  el.textContent = parts.join(' · ');
-  el.style.color = overLimit(bp) ? 'var(--warn)' : '';
+  if (overLimit(bp)) parts.push('über deinem Grenzwert');
+  el.textContent = parts.join(', ');
+  el.classList.toggle('warn', !!overLimit(bp));
 }
 // Weitere Messreihen desselben Halbtags (z. B. nach der Tablette) – der Tageswert ist die erste Messreihe
 function fillBpWeitere(p, messungen, bp) {
@@ -718,29 +686,42 @@ function fillBpWeitere(p, messungen, bp) {
   const halb = (messungen || []).filter((m) => m.zeit && (Number(m.zeit.slice(0, 2)) < 12) === (p === 'm'));
   const weitere = halb.filter((m) => !(bp && bp.zeit === m.zeit));
   if (!weitere.length) { el.textContent = ''; return; }
-  const txt = weitere.map((m) => `${m.zeit} ${m.sys}/${m.dia}${m.puls ? ` · P ${m.puls}` : ''}${m.anzahl > 1 ? ` (Ø ${m.anzahl})` : ''}`).join('  |  ');
-  el.textContent = `${bp && bp.zeit && halb.length > weitere.length ? 'Weitere Messungen' : 'Messungen'}: ${txt}`;
+  const txt = weitere.map((m) => `${m.zeit} ${m.sys}/${m.dia}${m.puls ? ` P ${m.puls}` : ''}${m.anzahl > 1 ? ` (Ø ${m.anzahl})` : ''}`).join('  ·  ');
+  el.textContent = `${bp && bp.zeit && halb.length > weitere.length ? 'Weitere' : 'Messungen'}: ${txt}`;
 }
-function toggleBtn(key, label) {
-  return `<button class="toggle" data-toggle="${key}" type="button"><span class="dot"></span><span>${label}</span></button>`;
+
+// Tablette: reine Anzeige. Abgehakt wird nur über Apple Health (Health Auto Export → Empfänger).
+function tabRow(key) {
+  return `
+    <div class="mrow">
+      <span class="lbl">Tablette</span>
+      <div><span class="pill" id="${key}-pill"><span class="tick" aria-hidden="true"></span><span id="${key}-txt"></span></span></div>
+    </div>`;
 }
-function tabletteInfo(key, day) {
-  const el = $(`#${key}-info`);
-  if (!el) return;
-  el.textContent = day[key] && day[key + 'Quelle'] === 'Apple Health'
-    ? `aus Apple Health${day[key + 'Zeit'] ? ` · eingenommen um ${day[key + 'Zeit']} Uhr` : ''}` : '';
+function tabletteAnzeigen(key, day, h, isToday) {
+  const pill = $(`#${key}-pill`), txt = $(`#${key}-txt`);
+  if (!pill) return;
+  const morgens = key === 'tabletteMorgen';
+  const eintraege = (h?.medikamente || []).filter((m) => (m.geplant || m.zeit) && (Number((m.geplant || m.zeit).slice(0, 2)) < 12) === morgens);
+  const ausgelassen = eintraege.some((m) => /skip|ausgelassen/i.test(m.status || ''));
+  pill.classList.remove('on', 'skip');
+  if (day[key]) {
+    pill.classList.add('on');
+    const zeit = day[key + 'Zeit'];
+    const quelle = day[key + 'Quelle'];
+    txt.innerHTML = `genommen${zeit ? ` um ${zeit}` : ''} <span class="src">${quelle === 'Apple Health' ? 'Apple Health' : quelle === 'Hand' ? 'früher von Hand' : ''}</span>`;
+  } else if (ausgelassen) {
+    pill.classList.add('skip');
+    txt.innerHTML = 'in Apple Health als ausgelassen';
+  } else {
+    txt.innerHTML = isToday ? 'offen <span class="src">in Apple Health eintragen</span>' : 'nicht in Apple Health protokolliert';
+  }
 }
-function setToggle(key, on) { $(`[data-toggle="${key}"]`).classList.toggle('on', on); }
 function setBefinden(v) { $$('#befinden button').forEach((b) => b.classList.toggle('on', Number(b.dataset.v) === v)); }
-function setRuecken(v) {
-  const r = $('#ruecken');
-  if (v == null) { r.value = 0; r.classList.add('unset'); $('#ruecken-val').textContent = '–'; }
-  else { r.value = v; r.classList.remove('unset'); $('#ruecken-val').textContent = v; }
-}
 function updateProgress(day) {
   const s = score(day);
   $('#ring-num').textContent = `${s}/5`;
-  $('#ring-bar').style.strokeDashoffset = String(175.9 * (1 - s / 5));
+  $('#ring-bar').style.strokeDashoffset = String(RING * (1 - s / 5));
   const m = score(day, MORNING), a = score(day, EVENING);
   const bm = $('#badge-morgen'), ba = $('#badge-abend');
   bm.textContent = `${m}/3`; bm.classList.toggle('done', m === 3);
@@ -797,32 +778,32 @@ async function renderKonstanz() {
   }
 
   $('#view').innerHTML = `
-    <h1 style="margin:4px 2px 14px">Konstanz</h1>
+    <header class="page-head"><h1>Konstanz</h1></header>
     <div class="stats">
-      <div class="stat"><div class="num">${current}<small>${current === 1 ? 'Tag' : 'Tage'}</small></div><div class="lbl">aktuelle Serie</div></div>
-      <div class="stat"><div class="num">${longest}<small>${longest === 1 ? 'Tag' : 'Tage'}</small></div><div class="lbl">längste Serie</div></div>
-      <div class="stat"><div class="num">${Math.round((total7 / 35) * 100)}<small>%</small></div><div class="lbl">erledigt, letzte 7 Tage</div></div>
-      <div class="stat"><div class="num">${full30}<small>/30</small></div><div class="lbl">Tage komplett (30 T.)</div></div>
+      <div class="stat"><div class="num">${current}<small>T.</small></div><div class="lbl">Serie</div></div>
+      <div class="stat"><div class="num">${longest}<small>T.</small></div><div class="lbl">Rekord</div></div>
+      <div class="stat"><div class="num">${Math.round((total7 / 35) * 100)}<small>%</small></div><div class="lbl">Quote 7 T.</div></div>
+      <div class="stat"><div class="num">${full30}<small>/30</small></div><div class="lbl">komplett</div></div>
     </div>
 
-    <div class="card">
-      <div class="card-head"><div><h2>Letzte 7 Tage</h2><div class="sub">ohne heute</div></div></div>
+    <section class="card">
+      <div class="card-head"><h2>Letzte 7 Tage</h2><span class="sub">ohne heute</span></div>
       <div class="quota">
         ${quota.map((q) => `
           <div class="quota-row"><span>${q.label}</span><div class="bar"><i style="width:${(q.n / 7) * 100}%"></i></div><span class="val">${q.n}/7</span></div>`).join('')}
       </div>
-    </div>
+    </section>
 
-    <div class="card">
-      <div class="card-head"><div><h2>Kalender</h2><div class="sub">13 Wochen · Tag antippen zum Nachtragen</div></div></div>
+    <section class="card">
+      <div class="card-head"><h2>13 Wochen</h2><span class="sub">Tag antippen zum Ansehen</span></div>
       <div class="months">${monthLabels.map((m) => `<span>${m}</span>`).join('')}</div>
       <div class="heatmap">
         <div class="wd">${['Mo', '', 'Mi', '', 'Fr', '', 'So'].map((w) => `<span>${w}</span>`).join('')}</div>
         <div class="grid">${cells.join('')}</div>
       </div>
-      <div class="legend">0 <i style="background:#22262b"></i><i style="background:#144a37"></i><i style="background:#18684b"></i><i style="background:#1b8a62"></i><i style="background:#22b07c"></i><i style="background:#6ff0bd"></i> 5 Aufgaben</div>
-    </div>
-    <p class="muted small" style="margin:0 4px">„Komplett“ heißt: gewogen, Blutdruck morgens und abends gemessen, beide Tabletten abgehakt.</p>
+      <div class="legend">0 <i style="background:var(--well)"></i><i style="background:#2a2a3a"></i><i style="background:#4b3a2c"></i><i style="background:#7a5528"></i><i style="background:#b47c2c"></i><i style="background:var(--gold)"></i> 5</div>
+    </section>
+    <p class="foot">Komplett heißt: gewogen, Blutdruck morgens und abends gemessen, beide Tabletten in Apple Health protokolliert.</p>
   `;
 
   $$('.heatmap .cell[data-day]').forEach((c) => c.addEventListener('click', () => {
@@ -848,7 +829,7 @@ async function renderVerlauf() {
   const tsb = keys0(from, n).map((k) => training[k]?.tsb ?? null);
   const tLast = keys0(from, n).map((k) => (training[k] ? training[k].last || null : null));
   const schweissListe = keys0(from, n).flatMap((k) => (training[k]?.aktivitaeten || [])
-    .map((x) => ({ k, x, sw: schweiss(x, health[k]?.gewichtMessungen) })).filter((e) => e.sw)).reverse().slice(0, 10);
+    .map((x) => ({ k, x, sw: schweiss(x, health[k]?.gewichtMessungen) })).filter((e) => e.sw)).reverse().slice(0, 5);
   const keys = Array.from({ length: n }, (_, i) => addDays(from, i));
   const val = (k, f) => f(map[k] || {});
   const hval = (k, f) => f(health[k] || {});
@@ -880,130 +861,117 @@ async function renderVerlauf() {
   const dayDia = keys.map((_, i) => avg([mDia[i], aDia[i]]));
   const recent = (arr) => avg(arr.slice(-7));
   const puls = keys.map((k) => val(k, (d) => avg([d.bdMorgen?.puls, d.bdAbend?.puls])));
-  const ruecken = keys.map((k) => val(k, (d) => d.ruecken ?? null));
 
   const { grenzSys, grenzDia } = state.settings;
   const bpText = (s, d) => (s == null || d == null ? '–' : `${Math.round(s)}/${Math.round(d)}`);
 
+  const C = { gold: '#f4b740', ember: '#f38b4a', coral: '#ee6352', blue: '#6ea8f5', sky: '#8fb6ff', violet: '#b49af5', ok: '#4fcf9e', grey: '#4a5878' };
   $('#view').innerHTML = `
-    <div class="hero" style="margin-bottom:14px">
+    <header class="page-head">
       <h1>Verlauf</h1>
       <div class="seg-small" id="range">
         ${[30, 90, 180].map((v) => `<button data-v="${v}" class="${v === n ? 'on' : ''}">${v} T.</button>`).join('')}
       </div>
-    </div>
+    </header>
 
-    <div class="card">
-      <div class="card-head"><h2>Gewicht</h2><span class="sub">kg</span></div>
+    <section class="card">
+      <div class="card-head"><h2>Gewicht</h2><span class="sub">kg · Punkte Messung, Linie Ø 7 Tage</span></div>
       ${weights.some((v) => v != null) ? lineChart(keys, [
-        { values: weights, color: '#7cf2c4', type: 'dots' },
-        { values: wAvg, color: '#22c08a', type: 'line', width: 2.5 },
-      ]) : '<div class="empty">Noch keine Gewichtswerte</div>'}
-      <div class="chart-legend"><span><i style="background:#7cf2c4"></i>Messung</span><span><i style="background:#22c08a"></i>Ø 7 Tage</span></div>
+        { values: weights, color: C.gold, type: 'dots' },
+        { values: wAvg, color: C.ember, type: 'line', width: 2.5 },
+      ], { height: 130 }) : '<div class="empty">Noch keine Gewichtswerte</div>'}
       <div class="kpis">
         <div class="kpi"><b>${fmt(lastW)}</b><span>zuletzt</span></div>
         <div class="kpi"><b>${fmt(lastAvg)}</b><span>Ø 7 Tage</span></div>
         <div class="kpi"><b>${deltaW == null ? '–' : (deltaW > 0 ? '+' : '') + fmt(deltaW)}</b><span>Veränderung</span></div>
       </div>
-    </div>
+    </section>
 
     ${fett.some((v) => v != null) || muskel.some((v) => v != null) ? `
-    <div class="card">
-      <div class="card-head"><div><h2>Körperzusammensetzung</h2><div class="sub">Garmin-Waage</div></div></div>
-      <div class="sub" style="margin:2px 0 4px">Körperfett in %</div>
+    <section class="card">
+      <div class="card-head"><h2>Körperzusammensetzung</h2><span class="sub">Garmin-Waage</span></div>
+      <div class="chart-sub">Körperfett %</div>
       ${lineChart(keys, [
-        { values: fett, color: '#f2b84b', type: 'dots' },
-        { values: fettAvg, color: '#e8644f', type: 'line', width: 2.5 },
-      ], { height: 140 })}
-      <div class="sub" style="margin:10px 0 4px">Muskelmasse in kg</div>
+        { values: fett, color: C.ember, type: 'dots' },
+        { values: fettAvg, color: C.coral, type: 'line', width: 2.2 },
+      ], { height: 96 })}
+      <div class="chart-sub">Muskelmasse kg</div>
       ${lineChart(keys, [
-        { values: muskel, color: '#8fc7ff', type: 'dots' },
-        { values: muskelAvg, color: '#3d8bfd', type: 'line', width: 2.5 },
-      ], { height: 140 })}
-      <div class="chart-legend"><span><i style="background:#e8644f"></i>Körperfett Ø 7 Tage</span><span><i style="background:#3d8bfd"></i>Muskelmasse Ø 7 Tage</span></div>
-      <div class="kpis" style="grid-template-columns:repeat(2,1fr)">
-        <div class="kpi"><b>${fmt(zuletzt(fett))} %</b><span>Körperfett</span></div>
-        <div class="kpi"><b>${signedFmt(veraenderung(fettAvg))}</b><span>Veränderung %</span></div>
-        <div class="kpi"><b>${fmt(zuletzt(muskel))} kg</b><span>Muskelmasse</span></div>
-        <div class="kpi"><b>${signedFmt(veraenderung(muskelAvg))}</b><span>Veränderung kg</span></div>
+        { values: muskel, color: C.sky, type: 'dots' },
+        { values: muskelAvg, color: C.blue, type: 'line', width: 2.2 },
+      ], { height: 96 })}
+      <div class="kpis">
+        <div class="kpi"><b>${fmt(zuletzt(fett))} %</b><span>Fett ${signedFmt(veraenderung(fettAvg))}</span></div>
+        <div class="kpi"><b>${fmt(zuletzt(muskel))} kg</b><span>Muskeln ${signedFmt(veraenderung(muskelAvg))}</span></div>
       </div>
-    </div>` : ''}
+    </section>` : ''}
 
-    <div class="card">
+    <section class="card">
       <div class="card-head"><h2>Blutdruck</h2><span class="sub">mmHg</span></div>
       ${[...mSys, ...aSys].some((v) => v != null) ? lineChart(keys, [
-        { values: mSys, color: '#7cf2c4', type: 'dots' },
-        { values: aSys, color: '#7cf2c4', type: 'dots', hollow: true },
-        { values: mDia, color: '#5aa9f0', type: 'dots' },
-        { values: aDia, color: '#5aa9f0', type: 'dots', hollow: true },
-        { values: movingAvg(daySys, 7), color: '#7cf2c4', type: 'line', width: 2 },
-        { values: movingAvg(dayDia, 7), color: '#5aa9f0', type: 'line', width: 2 },
-      ], { thresholds: [grenzSys, grenzDia].filter(Boolean), height: 210 }) : '<div class="empty">Noch keine Blutdruckwerte</div>'}
+        { values: mSys, color: C.coral, type: 'dots' },
+        { values: aSys, color: C.coral, type: 'dots', hollow: true },
+        { values: mDia, color: C.blue, type: 'dots' },
+        { values: aDia, color: C.blue, type: 'dots', hollow: true },
+        { values: movingAvg(daySys, 7), color: C.coral, type: 'line', width: 2 },
+        { values: movingAvg(dayDia, 7), color: C.blue, type: 'line', width: 2 },
+      ], { thresholds: [grenzSys, grenzDia].filter(Boolean), height: 160 }) : '<div class="empty">Noch keine Blutdruckwerte</div>'}
       <div class="chart-legend">
-        <span><i style="background:#7cf2c4"></i>Systolisch</span>
-        <span><i style="background:#5aa9f0"></i>Diastolisch</span>
-        <span><i style="border:2px solid #98a1a9;background:none;width:9px;height:9px"></i>abends</span>
-        ${grenzSys || grenzDia ? '<span>--- Grenzwert</span>' : ''}
+        <span><i style="background:${C.coral}"></i>systolisch</span>
+        <span><i style="background:${C.blue}"></i>diastolisch</span>
+        <span><i style="border:1.5px solid var(--muted);background:none;width:7px;height:7px"></i>abends</span>
+        ${grenzSys || grenzDia ? `<span style="color:var(--gold)">- - Grenzwert</span>` : ''}
       </div>
       <div class="kpis">
         <div class="kpi"><b>${bpText(recent(mSys), recent(mDia))}</b><span>Ø morgens 7 T.</span></div>
         <div class="kpi"><b>${bpText(recent(aSys), recent(aDia))}</b><span>Ø abends 7 T.</span></div>
         <div class="kpi"><b>${recent(puls) == null ? '–' : Math.round(recent(puls))}</b><span>Ø Puls 7 T.</span></div>
       </div>
-    </div>
+    </section>
 
-    <div class="card">
-      <div class="card-head"><h2>Belastung</h2><span class="sub">aus Analytics</span></div>
+    <section class="card">
+      <div class="card-head"><h2>Belastung</h2><span class="sub">Radtraining aus Analytics</span></div>
       ${ctl.some((v) => v != null) ? lineChart(keys, [
-        { values: tLast, color: '#5a6470', type: 'dots' },
-        { values: ctl, color: '#5aa9f0', type: 'line', width: 2.5 },
-        { values: atl, color: '#ef6a6a', type: 'line', width: 2 },
-      ], { height: 170 }) + lineChart(keys, [
-        { values: tsb, color: '#f2b84b', type: 'line', width: 2.5 },
-      ], { thresholds: [0, -25], height: 120 }) : '<div class="empty">Noch keine Trainingsdaten – in Analytics den Abgleich einschalten</div>'}
-      <div class="chart-legend"><span><i style="background:#5aa9f0"></i>Fitness (CTL)</span><span><i style="background:#ef6a6a"></i>Ermüdung (ATL)</span><span><i style="background:#f2b84b"></i>Form (TSB)</span><span><i style="background:#5a6470"></i>Tageslast</span></div>
+        { values: tLast, color: C.grey, type: 'dots' },
+        { values: ctl, color: C.blue, type: 'line', width: 2.4 },
+        { values: atl, color: C.coral, type: 'line', width: 1.8 },
+      ], { height: 120 }) + lineChart(keys, [
+        { values: tsb, color: C.gold, type: 'line', width: 2.2 },
+      ], { thresholds: [0, -25], height: 80 }) : '<div class="empty">Noch keine Trainingsdaten</div>'}
+      <div class="chart-legend"><span><i style="background:${C.blue}"></i>Fitness CTL</span><span><i style="background:${C.coral}"></i>Ermüdung ATL</span><span><i style="background:${C.gold}"></i>Form TSB</span><span><i style="background:${C.grey}"></i>Tageslast</span></div>
       ${schweissListe.length ? `
-      <div class="sub" style="margin:14px 0 6px">Flüssigkeitsverlust je Einheit (Waage vorher/nachher)</div>
-      <div class="list">${schweissListe.map(({ k, x, sw }) => `
-        <div class="schweiss-row"><span>${fmtShort(k)} · ${escapeHtml(x.name || SPORT[x.typ] || 'Training')} · ${x.dauerMin} min</span>
+      <div class="chart-sub" style="margin-top:10px">Flüssigkeitsverlust je Einheit (1 kg ≈ 1 l)</div>
+      <div>${schweissListe.map(({ k, x, sw }) => `
+        <div class="schweiss-row"><span>${fmtShort(k)} ${escapeHtml(x.name || SPORT[x.typ] || 'Training')}, ${x.dauerMin} min</span>
           <strong>${sw.verlust > 0 ? `−${fmt(sw.verlust)} kg${sw.proStunde ? ` · ${fmt(sw.proStunde)} l/h` : ''}` : '± 0'}</strong></div>`).join('')}
-      </div>
-      <p class="muted small" style="margin:8px 0 0">1 kg Gewichtsverlust ≈ 1 l Flüssigkeit; Getrunkenes während der Einheit kommt noch dazu.</p>` : ''}
-    </div>
+      </div>` : ''}
+    </section>
 
-    <div class="card">
-      <div class="card-head"><h2>Schlaf</h2><span class="sub">Stunden</span></div>
+    <section class="card">
+      <div class="card-head"><h2>Schlaf</h2><span class="sub">Stunden · Linie 6:30 h</span></div>
       ${schlafH.some((v) => v != null) ? lineChart(keys, [
-        { values: schlafH, color: '#5aa9f0', type: 'dots' },
-        { values: movingAvg(schlafH, 7), color: '#5aa9f0', type: 'line', width: 2 },
-      ], { thresholds: [6.5], height: 160 }) : '<div class="empty">Noch keine Schlafdaten</div>'}
+        { values: schlafH, color: C.sky, type: 'dots' },
+        { values: movingAvg(schlafH, 7), color: C.blue, type: 'line', width: 2 },
+      ], { thresholds: [6.5], height: 110 }) : '<div class="empty">Noch keine Schlafdaten</div>'}
       <div class="kpis">
         <div class="kpi"><b>${hm(avg(schlafH.slice(-7)))}</b><span>Ø 7 Tage</span></div>
         <div class="kpi"><b>${hm(avg(schlafH))}</b><span>Ø Zeitraum</span></div>
-        <div class="kpi"><b>${schlafH.filter((v) => v != null && v >= 6.5).length}</b><span>Nächte ≥ 6:30 h</span></div>
+        <div class="kpi"><b>${schlafH.filter((v) => v != null && v >= 6.5).length}</b><span>Nächte ≥ 6:30</span></div>
       </div>
-    </div>
+    </section>
 
-    <div class="card">
+    <section class="card">
       <div class="card-head"><h2>Ruhepuls &amp; HRV</h2><span class="sub">bpm · ms</span></div>
       ${ruhepuls.some((v) => v != null) ? lineChart(keys, [
-        { values: ruhepuls, color: '#ef6a6a', type: 'dots' },
-        { values: movingAvg(ruhepuls, 7), color: '#ef6a6a', type: 'line', width: 2 },
-      ], { height: 140 }) : '<div class="empty">Noch keine Ruhepuls-Daten</div>'}
+        { values: ruhepuls, color: C.coral, type: 'dots' },
+        { values: movingAvg(ruhepuls, 7), color: C.coral, type: 'line', width: 2 },
+      ], { height: 96 }) : '<div class="empty">Noch keine Ruhepuls-Daten</div>'}
       ${hrvs.some((v) => v != null) ? lineChart(keys, [
-        { values: hrvs, color: '#b38cf5', type: 'dots' },
-        { values: movingAvg(hrvs, 7), color: '#b38cf5', type: 'line', width: 2 },
-      ], { height: 140 }) : ''}
-      <div class="chart-legend"><span><i style="background:#ef6a6a"></i>Ruhepuls</span><span><i style="background:#b38cf5"></i>HRV</span></div>
-    </div>
-
-    <div class="card">
-      <div class="card-head"><h2>Rücken</h2><span class="sub">0–10</span></div>
-      ${ruecken.some((v) => v != null) ? lineChart(keys, [
-        { values: ruecken, color: '#f2b84b', type: 'dots' },
-        { values: movingAvg(ruecken, 7), color: '#f2b84b', type: 'line', width: 2 },
-      ], { yMin: 0, yMax: 10, height: 150 }) : '<div class="empty">Noch keine Einträge</div>'}
-    </div>
+        { values: hrvs, color: C.violet, type: 'dots' },
+        { values: movingAvg(hrvs, 7), color: C.violet, type: 'line', width: 2 },
+      ], { height: 96 }) : ''}
+      <div class="chart-legend"><span><i style="background:${C.coral}"></i>Ruhepuls</span><span><i style="background:${C.violet}"></i>HRV</span></div>
+    </section>
   `;
 
   $$('#range button').forEach((b) => b.addEventListener('click', () => {
@@ -1021,19 +989,19 @@ function movingAvg(values, win) {
   });
 }
 
-function niceRange(min, max) {
+function niceRange(min, max, maxSteps = 5) {
   if (min === max) { min -= 1; max += 1; }
   const span = max - min;
-  const step = [1, 2, 5, 10, 20, 25, 50].find((s) => span / s <= 5) || 100;
+  const step = [0.5, 1, 2, 5, 10, 20, 25, 50].find((s) => span / s <= maxSteps) || 100;
   return { lo: Math.floor(min / step) * step, hi: Math.ceil(max / step) * step, step };
 }
 
 function lineChart(keys, series, opts = {}) {
-  const W = 340, H = opts.height || 180, L = 30, R = 8, T = 10, B = 22;
+  const W = 340, H = opts.height || 140, L = 28, R = 6, T = 8, B = 18;
   const all = series.flatMap((s) => s.values).concat(opts.thresholds || []).filter((v) => v != null);
   const { lo, hi, step } = opts.yMin != null
     ? { lo: opts.yMin, hi: opts.yMax, step: (opts.yMax - opts.yMin) / 5 }
-    : niceRange(Math.min(...all), Math.max(...all));
+    : niceRange(Math.min(...all), Math.max(...all), H < 120 ? 3 : 4);
   const n = keys.length;
   const x = (i) => L + (n <= 1 ? 0 : (i * (W - L - R)) / (n - 1));
   const y = (v) => T + ((hi - v) * (H - T - B)) / (hi - lo || 1);
@@ -1044,10 +1012,10 @@ function lineChart(keys, series, opts = {}) {
     svg += `<text x="${L - 5}" y="${y(v) + 3}" text-anchor="end">${Number.isInteger(v) ? v : fmt(v)}</text>`;
   }
   for (const i of [0, Math.floor((n - 1) / 2), n - 1]) {
-    svg += `<text x="${x(i)}" y="${H - 6}" text-anchor="${i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle'}">${fmtShort(keys[i])}</text>`;
+    svg += `<text x="${x(i)}" y="${H - 4}" text-anchor="${i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle'}">${fmtShort(keys[i])}</text>`;
   }
   for (const t of opts.thresholds || []) {
-    svg += `<line x1="${L}" x2="${W - R}" y1="${y(t)}" y2="${y(t)}" stroke="#f2b84b" stroke-width="1.2" stroke-dasharray="4 4"/>`;
+    svg += `<line x1="${L}" x2="${W - R}" y1="${y(t)}" y2="${y(t)}" stroke="#f4b740" stroke-width="1" stroke-dasharray="3 4" opacity=".7"/>`;
   }
   const r = n > 120 ? 1.8 : n > 45 ? 2.4 : 3.2;
   for (const s of series) {
@@ -1059,7 +1027,7 @@ function lineChart(keys, series, opts = {}) {
       s.values.forEach((v, i) => {
         if (v == null) return;
         svg += s.hollow
-          ? `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="${r}" fill="#1d2024" stroke="${s.color}" stroke-width="1.4" opacity="0.85"/>`
+          ? `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="${r}" fill="#121e34" stroke="${s.color}" stroke-width="1.4" opacity="0.85"/>`
           : `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="${r}" fill="${s.color}" opacity="0.55"/>`;
       });
     }
@@ -1072,47 +1040,50 @@ async function renderMehr() {
   const demo = state.store.mode === 'demo';
   const s = state.settings;
   $('#view').innerHTML = `
-    <h1 style="margin:4px 2px 14px">Mehr</h1>
+    <header class="page-head"><h1>Mehr</h1></header>
 
-    <div class="card">
-      <div class="card-head"><h2>Erinnerungen</h2></div>
+    <section class="card">
+      <div class="card-head"><h2>Erinnerungen per Mail</h2><span class="sub">nur wenn etwas fehlt</span></div>
       <div class="times">
-        <div><span>Morgens: Wiegen, Blutdruck, Morgentablette</span><strong>08:45</strong></div>
-        <div><span>Abends: Blutdruck, Abendtablette + Offenes</span><strong>18:30</strong></div>
+        <div><span>Wiegen, Blutdruck, Morgentablette</span><strong>08:45</strong></div>
+        <div><span>Blutdruck, Abendtablette und Offenes</span><strong>18:30</strong></div>
       </div>
-      <p class="hint" style="margin:10px 0 0">Der Empfänger prüft zu diesen Zeiten, was für heute noch fehlt, und schickt dann eine <b>Mail</b>. Ist alles eingetragen, kommt keine Mail (Anleitung: <b>EMPFAENGER.md</b>).</p>
-    </div>
+    </section>
 
-    <div class="card">
-      <div class="card-head"><h2>Apple Health</h2></div>
-      <p class="hint" style="margin:0">Schlaf, Ruhepuls, HRV, Gewicht und Blutdruck kommen automatisch über <b>Health Auto Export</b> (Anleitung: <b>EMPFAENGER.md</b>). Von Hand eingetragene Werte haben immer Vorrang.</p>
-    </div>
+    <section class="card">
+      <div class="card-head"><h2>Datenquellen</h2></div>
+      <div class="times">
+        <div><span>Gewicht, Körperfett, Muskeln</span><strong style="color:var(--muted)">Garmin</strong></div>
+        <div><span>Schlaf, Ruhepuls, HRV, Blutdruck</span><strong style="color:var(--muted)">Apple Health</strong></div>
+        <div><span>Tabletten (nur von dort)</span><strong style="color:var(--muted)">Apple Health</strong></div>
+        <div><span>Radtraining</span><strong style="color:var(--muted)">Analytics</strong></div>
+      </div>
+    </section>
 
-    <div class="card">
-      <div class="card-head"><div><h2>Grenzwerte Blutdruck</h2><div class="sub">optional</div></div></div>
+    <section class="card">
+      <div class="card-head"><h2>Grenzwerte Blutdruck</h2><span class="sub">mit dem Hausarzt festlegen</span></div>
       <div class="bp" style="grid-template-columns:1fr 1fr">
         <label>Systolisch über<input id="grenz-sys" inputmode="numeric" placeholder="z. B. 135" value="${s.grenzSys ?? ''}"></label>
         <label>Diastolisch über<input id="grenz-dia" inputmode="numeric" placeholder="z. B. 85" value="${s.grenzDia ?? ''}"></label>
       </div>
-      <p class="hint" style="margin:10px 0 0">Bitte mit deinem Hausarzt festlegen. Werte darüber werden markiert und im Verlauf als Linie gezeigt.</p>
-    </div>
+    </section>
 
-    <div class="card">
-      <div class="card-head"><div><h2>Bericht als PDF</h2><div class="sub">für die Woche oder den Hausarzt</div></div></div>
-      <div class="seg-small" id="bericht-tage" style="margin-bottom:12px">
+    <section class="card">
+      <div class="card-head"><h2>Bericht als PDF</h2><span class="sub">für den Hausarzt</span></div>
+      <div class="seg-small" id="bericht-tage" style="margin-bottom:10px">
         ${[7, 14, 30, 90].map((v) => `<button data-v="${v}" class="${v === state.berichtTage ? 'on' : ''}">${v} Tage</button>`).join('')}
       </div>
-      <label class="field" style="margin-bottom:12px"><span>Name im Bericht (optional)</span>
-        <input id="bericht-name" placeholder="z. B. Johannes Backhaus, geb. 12.07.1963" value="${escapeHtml(s.berichtName || '')}" autocomplete="off" style="width:100%">
+      <label class="field" style="margin-bottom:10px"><span>Name im Bericht</span>
+        <input id="bericht-name" placeholder="z. B. Johannes Backhaus, geb. 12.07.1963" value="${escapeHtml(s.berichtName || '')}" autocomplete="off">
       </label>
       <div class="btn-row">
         <button class="btn primary" id="bericht" style="flex:1.4">PDF speichern</button>
         <button class="btn" id="bericht-teilen" style="flex:1">Teilen …</button>
       </div>
-      <p class="hint" style="margin:10px 0 0">Enthält Blutdruck (Diagramm, Mittelwerte, Höchstwerte), Gewicht, Tabletten, Schlaf, Ruhepuls, HRV, Radtraining, Dienste und alle Tageswerte. ${IST_IOS ? '„PDF speichern“ öffnet das iOS-Menü – dort „In Dateien sichern“ wählen. „Teilen …“ für Mail, Nachrichten, Drucken usw.' : '„PDF speichern“ legt den Bericht in „Downloads“ ab, „Teilen …“ öffnet Mail, Nachrichten, Drucken usw.'}</p>
-    </div>
+      ${IST_IOS ? '<p class="hint">„PDF speichern“ öffnet das iOS-Menü – dort „In Dateien sichern“ wählen.</p>' : ''}
+    </section>
 
-    <div class="card">
+    <section class="card">
       <div class="card-head"><h2>Daten</h2></div>
       <div class="list">
         <button class="btn block" id="export">Alle Daten als CSV exportieren</button>
@@ -1122,21 +1093,21 @@ async function renderMehr() {
             <button class="btn danger" id="demo-clear" style="flex:1">Demo-Daten löschen</button>
           </div>` : ''}
       </div>
-    </div>
+    </section>
 
-    <div class="card">
-      <div class="card-head"><div><h2>Konto &amp; Sicherheit</h2><div class="sub">Passwortschutz optional</div></div></div>
-      <label style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin:4px 0 12px;cursor:pointer">
-        <span>Passwortabfrage beim Start verlangen</span>
-        <input type="checkbox" id="require-pass-toggle" ${isPasswordRequired() ? 'checked' : ''} style="width:20px;height:20px">
+    <section class="card">
+      <div class="card-head"><h2>Konto</h2></div>
+      <label class="switch-row">
+        <span>Passwort beim Start abfragen</span>
+        <input type="checkbox" id="require-pass-toggle" ${isPasswordRequired() ? 'checked' : ''}>
       </label>
-      <p class="muted small" style="margin:0 0 12px">${demo ? 'Demo-Modus: Alle Daten bleiben auf diesem Gerät.' : (state.user?.localFallback ? 'Direktstart aktiv (Johannes) – ohne Passwortabfrage beim Öffnen.' : `Cloud-Sync aktiv als ${escapeHtml(state.user?.email || '')}`)}</p>
+      <p class="hint" style="margin:0 0 10px">${demo ? 'Demo-Modus: Alle Daten bleiben auf diesem Gerät.' : (state.user?.localFallback ? 'Direktstart ohne Passwort aktiv.' : `Angemeldet als ${escapeHtml(state.user?.email || '')}`)}</p>
       ${demo ? '' : (state.user?.localFallback
-        ? '<button class="btn primary block" id="open-login">Mit Cloud-Konto anmelden (Sync)</button>'
-        : '<button class="btn danger block" id="logout">Abmelden / Sperren</button>')}
-    </div>
+        ? '<button class="btn primary block" id="open-login">Mit Cloud-Konto anmelden</button>'
+        : '<button class="btn danger block" id="logout">Abmelden</button>')}
+    </section>
 
-    <p class="muted small" style="text-align:center">Gesundheitscockpit ${VERSION}</p>
+    <p class="foot" style="text-align:center">Gesundheitscockpit ${VERSION}</p>
   `;
 
   for (const [id, key] of [['grenz-sys', 'grenzSys'], ['grenz-dia', 'grenzDia']]) {
@@ -1269,12 +1240,12 @@ async function exportCsv() {
   const n = (v, dec = 0) => (v == null ? '' : v.toLocaleString('de-DE', { minimumFractionDigits: dec, maximumFractionDigits: dec, useGrouping: false }));
   const q = (s) => `"${String(s ?? '').replace(/"/g, '""')}"`;
   const head = ['Datum', 'Gewicht (kg)', 'Sys morgens', 'Dia morgens', 'Puls morgens', 'Zeit morgens', 'Morgentablette',
-    'Sys abends', 'Dia abends', 'Puls abends', 'Zeit abends', 'Abendtablette', 'Befinden (1-5)', 'Rücken (0-10)', 'Notiz'];
+    'Sys abends', 'Dia abends', 'Puls abends', 'Zeit abends', 'Abendtablette', 'Befinden (1-5)', 'Notiz'];
   const rows = keys.map((k) => {
     const d = map[k];
     const bm = d.bdMorgen || {}, ba = d.bdAbend || {};
     return [parseKey(k).toLocaleDateString('de-DE'), n(d.gewicht, 1), n(bm.sys), n(bm.dia), n(bm.puls), bm.zeit || '', d.tabletteMorgen ? 'ja' : '',
-      n(ba.sys), n(ba.dia), n(ba.puls), ba.zeit || '', d.tabletteAbend ? 'ja' : '', n(d.befinden), n(d.ruecken), q(d.notiz)].join(';');
+      n(ba.sys), n(ba.dia), n(ba.puls), ba.zeit || '', d.tabletteAbend ? 'ja' : '', n(d.befinden), q(d.notiz)].join(';');
   });
   const csv = '﻿' + head.join(';') + '\n' + rows.join('\n');
   const name = `Gesundheitscockpit_${todayKey()}.csv`;

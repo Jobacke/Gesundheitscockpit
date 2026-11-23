@@ -85,7 +85,6 @@ export function auswerten({ tage, health, dienste, training, settings, from, to,
       return { fett: avg(f), fettDelta: f.length > 1 ? f[f.length - 1] - f[0] : null, muskel: avg(m), muskelDelta: m.length > 1 ? m[m.length - 1] - m[0] : null };
     })(),
     befinden: avg(keys.map((k) => tage[k]?.befinden ?? null)),
-    ruecken: avg(keys.map((k) => tage[k]?.ruecken ?? null)),
     training: { einheiten, stunden, ctlStart: tFirst?.ctl ?? null, ctlEnde: tLast?.ctl ?? null, tsbEnde: tLast?.tsb ?? null, vorhanden: tKeys.length > 0 },
     dienstZahl,
     notizen: keys.filter((k) => tage[k]?.notiz).map((k) => ({ k, text: String(tage[k].notiz) })),
@@ -181,7 +180,6 @@ export async function berichtErstellen(store, settings, tageAnzahl, version) {
     ['Form (TSB) zuletzt', a.training.tsbEnde != null ? signed(a.training.tsbEnde) : '–'],
     ['Dienste', dz || 'keine'],
   ];
-  if (a.ruecken != null) kv.splice(4, 0, ['Rücken Ø (0–10)', de(a.ruecken, 1)]);
   if (a.koerper.muskel != null) kv.unshift(['Muskelmasse Ø', `${de(a.koerper.muskel, 1)} kg` + (a.koerper.muskelDelta != null ? ` (${signed(a.koerper.muskelDelta, 1)})` : '')]);
   if (a.koerper.fett != null) kv.unshift(['Körperfett Ø', `${de(a.koerper.fett, 1)} %` + (a.koerper.fettDelta != null ? ` (${signed(a.koerper.fettDelta, 1)})` : '')]);
   const half = Math.ceil(kv.length / 2), colW = CW / 2;

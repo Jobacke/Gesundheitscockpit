@@ -1,7 +1,7 @@
 // Datenschicht: Firebase (Login + Firestore mit Offline-Cache) oder Demo-Modus (localStorage).
 // Datenmodell: users/{uid}                → { einstellungen: {...} }
 //              users/{uid}/health/{JJJJ-MM-TT} → { datum, gewicht, ruhepuls, hrv, schlaf{…}, bdMessungen[], bdTagesmittel } (vom Empfänger)
-//              users/{uid}/tage/{JJJJ-MM-TT} → { datum, gewicht, bdMorgen, bdAbend, tabletteMorgen, tabletteAbend, befinden, ruecken, notiz, aktualisiert }
+//              users/{uid}/tage/{JJJJ-MM-TT} → { datum, gewicht, bdMorgen, bdAbend, tabletteMorgen, tabletteAbend, befinden, notiz, aktualisiert }
 
 const FB_VERSION = '10.12.2';
 
@@ -189,7 +189,6 @@ function createDemoStore() {
           bdAbend: ev && r > 0.3 ? { sys: Math.round(128 + (Math.random() - 0.5) * 12), dia: Math.round(82 + (Math.random() - 0.5) * 8), puls: Math.round(62 + Math.random() * 8), zeit: '18:07' } : null,
           tabletteAbend: ev && r > 0.2,
           befinden: 3 + Math.round(Math.random() * 2),
-          ruecken: Math.round(Math.random() * 4),
         };
       }
       write(all);

@@ -61,7 +61,7 @@ Nach jeder Änderung an `Code.gs`: **Bereitstellen → Bereitstellungen verwalte
 
 - Health Auto Export: eigene Automation **„Cockpit Tabletten“** (REST API, gleiche URL), Datentyp **Medikamente**, Format JSON, Datumsbereich **Heute**.
 - Jede Einnahme mit Status „Taken“ hakt die Morgen- (geplant vor 12 Uhr) bzw. Abendtablette ab; Quelle „Apple Health“ mit Uhrzeit.
-- Von Hand im Cockpit gesetzte/entfernte Häkchen haben immer Vorrang.
+- Ab v1.9.0 gibt es im Cockpit keine Hand-Eingabe für Tabletten mehr – Apple Health ist die einzige Quelle und überschreibt auch frühere Hand-Häkchen.
 - Mehrere Medikamente in Health? Skripteigenschaft `MEDIKAMENT` = Teil des Namens. Protokoll: `LETZTE_TABLETTEN` (zeigt auch die gefundenen Medikamentennamen).
 
 ## Wirklicher Auto-Export ohne manuelles Öffnen & ohne Homescreen-Icons (ab v1.8.6)

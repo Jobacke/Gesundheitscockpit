@@ -639,7 +639,7 @@ function garminAbgleich_(tage, mitRoh) {
 // Jede als „Taken“ protokollierte Einnahme hakt im Cockpit die Morgen- bzw. Abendtablette ab.
 // Morgens/abends richtet sich nach der GEPLANTEN Zeit (vor 12 Uhr = morgens), sonst nach der Einnahmezeit.
 // Optional: Skripteigenschaft MEDIKAMENT = Teil des Namens (z. B. „Ramipril“), falls in Health mehrere Medikamente stehen.
-// Von Hand im Cockpit gesetzte oder entfernte Häkchen werden nie überschrieben.
+// Ab v1.9.0 gibt es im Cockpit keine Hand-Eingabe mehr; Apple Health ist die einzige Quelle.
 // Medikamenten-Einträge finden, egal ob unter data.medications, medications oder als Liste
 function medikamenteListe_(payload) {
   if (!payload) return [];
@@ -690,7 +690,7 @@ function tablettenVerarbeiten_(liste) {
       const fill = {};
       [['morgen', 'tabletteMorgen'], ['abend', 'tabletteAbend']].forEach(([halb, feld]) => {
         const e = t[halb];
-        if (!e || vorhanden[feld + 'Quelle'] === 'Hand') return;           // Hand-Eintrag hat Vorrang
+        if (!e) return;                                                    // Tabletten kommen nur aus Apple Health
         if (vorhanden[feld] === true && vorhanden[feld + 'Zeit'] === e.zeit) return;
         fill[feld] = true; fill[feld + 'Quelle'] = 'Apple Health'; fill[feld + 'Zeit'] = e.zeit;
       });
