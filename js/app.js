@@ -2,7 +2,7 @@ import { firebaseConfig } from './firebase-config.js';
 import { createStore } from './store.js';
 import { berichtErstellen } from './bericht.js';
 
-const VERSION = '1.9.0';
+const VERSION = '1.9.1';
 const REQUIRE_PASSWORD_KEY = 'gc_require_password';
 const AUTO_AUTH_KEY = 'gc_auto_auth_v1';
 
@@ -385,7 +385,7 @@ async function renderHeute() {
       <div class="segmented" id="befinden">
         ${BEFINDEN.map((l, i) => `<button data-v="${i + 1}" type="button">${l}</button>`).join('')}
       </div>
-      <textarea id="notiz" rows="2" aria-label="Notiz" placeholder="Notiz, z. B. Kopfschmerzen, Rücken, Nachtdienst …"></textarea>
+      <div class="note" id="note"><textarea id="notiz" rows="1" aria-label="Notiz" placeholder="Notiz, z.B. Kopfschmerz, Rücken, Dienst..."></textarea><div class="note-preview" id="note-preview" aria-hidden="true"></div></div>
     </section>
   `;
 
@@ -409,6 +409,7 @@ async function renderHeute() {
   tabletteAnzeigen('tabletteAbend', day, health[d], isToday);
   setBefinden(day.befinden);
   $('#notiz').value = day.notiz || '';
+  notizZeigen();
   updateProgress(day);
 
   // Navigation
@@ -480,8 +481,13 @@ async function renderHeute() {
     save({ befinden: next });
   }));
 
-  // Notiz
-  $('#notiz').addEventListener('change', (e) => save({ notiz: e.target.value.trim() }, 'Notiz gespeichert'));
+  // Notiz: beim Antippen aufklappen und mitwachsen, beim Verlassen wieder einzeilig mit „…“
+  const nt = $('#notiz');
+  const wachsen = () => { nt.style.height = 'auto'; nt.style.height = nt.scrollHeight + 2 + 'px'; };
+  nt.addEventListener('focus', () => { $('#note').classList.add('open'); wachsen(); });
+  nt.addEventListener('input', wachsen);
+  nt.addEventListener('blur', () => { $('#note').classList.remove('open'); nt.style.height = ''; nt.scrollTop = 0; notizZeigen(); });
+  nt.addEventListener('change', (e) => save({ notiz: e.target.value.trim() }, 'Notiz gespeichert'));
 }
 
 /* ---------- Erholung (Daten aus Apple Health über den Empfänger) ---------- */
@@ -709,13 +715,20 @@ function tabletteAnzeigen(key, day, h, isToday) {
     pill.classList.add('on');
     const zeit = day[key + 'Zeit'];
     const quelle = day[key + 'Quelle'];
-    txt.innerHTML = `genommen${zeit ? ` um ${zeit}` : ''} <span class="src">${quelle === 'Apple Health' ? 'Apple Health' : quelle === 'Hand' ? 'früher von Hand' : ''}</span>`;
+    txt.innerHTML = `genommen${zeit ? ` ${zeit}` : ''} <span class="src">${quelle === 'Apple Health' ? 'Health' : quelle === 'Hand' ? 'von Hand' : ''}</span>`;
   } else if (ausgelassen) {
     pill.classList.add('skip');
-    txt.innerHTML = 'in Apple Health als ausgelassen';
+    txt.innerHTML = 'in Health ausgelassen';
   } else {
-    txt.innerHTML = isToday ? 'offen <span class="src">in Apple Health eintragen</span>' : 'nicht in Apple Health protokolliert';
+    txt.innerHTML = isToday ? 'offen <span class="src">in Health eintragen</span>' : 'nicht in Health erfasst';
   }
+}
+function notizZeigen() {
+  const nt = $('#notiz'), box = $('#note');
+  if (!nt || !box) return;
+  const t = nt.value.trim().replace(/\s*\n\s*/g, ' · ');
+  $('#note-preview').textContent = t;
+  box.classList.toggle('has-text', !!t);
 }
 function setBefinden(v) { $$('#befinden button').forEach((b) => b.classList.toggle('on', Number(b.dataset.v) === v)); }
 function updateProgress(day) {
