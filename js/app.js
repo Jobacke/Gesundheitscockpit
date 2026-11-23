@@ -2,7 +2,7 @@ import { firebaseConfig } from './firebase-config.js';
 import { createStore } from './store.js';
 import { berichtErstellen } from './bericht.js';
 
-const VERSION = '1.9.2';
+const VERSION = '1.9.3';
 const REQUIRE_PASSWORD_KEY = 'gc_require_password';
 const AUTO_AUTH_KEY = 'gc_auto_auth_v1';
 
@@ -303,11 +303,12 @@ function bindTabs() {
     if (b.dataset.tab === 'heute' && state.tab === 'heute') state.date = todayKey();
     state.tab = b.dataset.tab;
     render();
-    window.scrollTo(0, 0);
+    $('#view').scrollTop = 0;
   }));
 }
 
 function render() {
+  $('#view').classList.remove('dicht');
   $$('.tabbar button').forEach((b) => b.classList.toggle('active', b.dataset.tab === state.tab));
   const views = { heute: renderHeute, konstanz: renderKonstanz, verlauf: renderVerlauf, mehr: renderMehr };
   views[state.tab]().catch((e) => {
@@ -405,6 +406,9 @@ async function renderHeute() {
   $('#notiz').value = day.notiz || '';
   notizZeigen();
   updateProgress(day);
+  einpassen();
+  requestAnimationFrame(einpassen); // nach dem ersten Zeichnen (Schriften, Ränder für Dynamic Island) noch einmal prüfen
+  setTimeout(einpassen, 400);
 
   // Navigation
   $$('[data-nav]').forEach((b) => b.addEventListener('click', () => {
@@ -711,6 +715,16 @@ function tabletteAnzeigen(key, day, h, isToday) {
     txt.innerHTML = isToday ? 'offen <span class="src">in Health eintragen</span>' : 'nicht in Health erfasst';
   }
 }
+// „Heute“ soll ohne Scrollen auf den Bildschirm passen. Reicht der Platz nicht
+// (z. B. viele Zusatzzeilen an Trainingstagen), wird die Ansicht enger gesetzt.
+function einpassen() {
+  const v = $('#view');
+  if (!v) return;
+  v.classList.remove('dicht');
+  if (state.tab === 'heute' && v.scrollHeight > v.clientHeight + 1) v.classList.add('dicht');
+}
+window.addEventListener('resize', () => { if (state.tab === 'heute' && !document.activeElement?.matches?.('input, textarea')) einpassen(); });
+
 function notizZeigen() {
   const nt = $('#notiz'), box = $('#note');
   if (!nt || !box) return;
@@ -811,7 +825,7 @@ async function renderKonstanz() {
     state.date = c.dataset.day;
     state.tab = 'heute';
     render();
-    window.scrollTo(0, 0);
+    $('#view').scrollTop = 0;
   }));
 }
 

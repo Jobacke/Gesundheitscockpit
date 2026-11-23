@@ -32,7 +32,8 @@
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html, body { margin: 0; min-height: 100%; }
+/* Die App selbst scrollt nie (keine Laufleiste, kein Nachfedern) – gescrollt wird nur im Inhaltsbereich */
+html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; }
 body {
   background:
     radial-gradient(90% 40% at 85% -5%, rgba(244, 183, 64, .07), transparent 70%),
@@ -55,14 +56,20 @@ h2 { font-size: 15px; }
 /* Splash & Login */
 .splash { position: fixed; inset: 0; display: grid; place-content: center; justify-items: center; gap: 10px; color: var(--muted); }
 .splash img { border-radius: 18px; }
-.login { max-width: 380px; margin: 0 auto; padding: calc(60px + var(--safe-top)) 24px 40px; text-align: center; }
+.login { height: 100%; overflow-y: auto; max-width: 380px; margin: 0 auto; padding: calc(60px + var(--safe-top)) 24px 40px; text-align: center; }
 .login-icon { border-radius: 20px; box-shadow: 0 14px 40px rgba(0, 0, 0, .5); margin-bottom: 14px; }
 .login form { margin-top: 26px; text-align: left; display: grid; gap: 14px; }
 
 /* Layout */
-.app { min-height: 100%; }
-.view { padding: calc(6px + var(--safe-top)) 14px calc(66px + var(--safe-bottom)); max-width: 620px; margin: 0 auto; outline: none; }
-.demo-banner { position: sticky; top: 0; z-index: 5; background: #3a2c10; color: var(--gold); font-size: 12px; text-align: center; padding: calc(4px + var(--safe-top)) 8px 4px; }
+.app { height: 100%; display: flex; flex-direction: column; }
+.view {
+  flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  padding: calc(6px + var(--safe-top)) max(14px, calc((100% - 592px) / 2)) calc(66px + var(--safe-bottom));
+  outline: none;
+}
+.view::-webkit-scrollbar { display: none; width: 0; height: 0; }
+.demo-banner { flex: none; z-index: 5; background: #3a2c10; color: var(--gold); font-size: 12px; text-align: center; padding: calc(4px + var(--safe-top)) 8px 4px; }
 .demo-banner + .view { padding-top: 10px; }
 
 /* Tab-Leiste: schwebende Leiste über dem Inhalt */
@@ -362,6 +369,22 @@ textarea { resize: none; line-height: 1.35; }
   border-radius: var(--r-lg); padding: 16px; display: flex; flex-direction: column; gap: 10px;
 }
 .datei-bereit-panel .small { overflow-wrap: anywhere; margin-bottom: 4px; }
+
+/* Verdichtet, wenn „Heute“ sonst nicht ganz auf den Bildschirm passt */
+.view.dicht .top { margin-bottom: 4px; }
+.view.dicht .card { padding: 8px 11px; margin-bottom: 6px; }
+.view.dicht .advice { margin-bottom: 4px; }
+.view.dicht .gauge { padding: 3px 7px; }
+.view.dicht .gauge b { font-size: 15px; }
+.view.dicht .formline { margin-top: 4px; }
+.view.dicht .notes { margin-top: 4px; padding-top: 4px; gap: 1px; }
+.view.dicht .half-head { margin-bottom: 0; }
+.view.dicht .half + .half { margin-top: 3px; padding-top: 4px; }
+.view.dicht .mrow { padding: 2px 0; }
+.view.dicht input, .view.dicht textarea { padding-top: 3px; padding-bottom: 3px; }
+.view.dicht .note textarea { height: calc(1.35em + 8px); }
+.view.dicht .note-preview { padding-top: 3px; padding-bottom: 3px; }
+.view.dicht .segmented button { padding: 4px 0; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; }
