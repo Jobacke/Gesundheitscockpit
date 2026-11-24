@@ -2,7 +2,7 @@ import { firebaseConfig } from './firebase-config.js';
 import { createStore } from './store.js';
 import { berichtErstellen } from './bericht.js';
 
-const VERSION = '1.9.4';
+const VERSION = '2.0.0';
 const REQUIRE_PASSWORD_KEY = 'gc_require_password';
 const AUTO_AUTH_KEY = 'gc_auto_auth_v1';
 
@@ -208,7 +208,7 @@ async function boot() {
     return;
   }
   if (state.store.mode === 'demo') $('#demo-banner').hidden = false;
-  $('#app-version').textContent = 'v' + VERSION;
+  $('#app-version').textContent = 'Version ' + VERSION;
 
   bindLogin();
   bindTabs();
@@ -1136,7 +1136,7 @@ async function renderMehr() {
         : '<button class="btn danger block" id="logout">Abmelden</button>')}
     </section>
 
-    <p class="foot" style="text-align:center">Gesundheitscockpit ${VERSION}</p>
+    <p class="foot" style="text-align:center">Gesundheitscockpit Version ${VERSION}</p>
   `;
 
   for (const [id, key] of [['grenz-sys', 'grenzSys'], ['grenz-dia', 'grenzDia']]) {
