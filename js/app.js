@@ -2,7 +2,7 @@ import { firebaseConfig } from './firebase-config.js';
 import { createStore } from './store.js';
 import { berichtErstellen } from './bericht.js';
 
-const VERSION = '1.9.3';
+const VERSION = '1.9.4';
 const REQUIRE_PASSWORD_KEY = 'gc_require_password';
 const AUTO_AUTH_KEY = 'gc_auto_auth_v1';
 
@@ -76,13 +76,27 @@ const LIMITS = {
 const state = {
   store: null,
   user: null,
-  tab: 'heute',
+  tab: startTab(),
   date: todayKey(),
   lastToday: todayKey(),
   settings: {},
   verlaufTage: 30,
   berichtTage: 14,
 };
+
+// Aus dem Board: ?tab=verlauf | konstanz | mehr öffnet direkt diese Seite
+function startTab() {
+  try {
+    const p = new URLSearchParams(location.search);
+    const t = p.get('tab');
+    if (t) {
+      p.delete('tab');
+      const r = p.toString();
+      history.replaceState(null, '', location.pathname + (r ? '?' + r : '') + location.hash);
+    }
+    return ['heute', 'konstanz', 'verlauf', 'mehr'].includes(t) ? t : 'heute';
+  } catch { return 'heute'; }
+}
 
 /* ---------- Hilfsfunktionen ---------- */
 const $ = (sel, el = document) => el.querySelector(sel);
